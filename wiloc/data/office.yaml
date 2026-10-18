@@ -1,0 +1,84 @@
+# WiLoc reference floor plan: a 20 m x 12 m office floor.
+#
+#   y=12 +---------+---------+---------+---------+
+#        | Room A  | Room B  | Room C  | Room D  |   rooms 5 m x 5 m
+#   y=7  +--D------+--D------+--D------+--D------+   D = 1 m door gap
+#        |               corridor               |
+#   y=5  +--D------+--D------+--D------+--D------+
+#        | Room E  | Room F  | Room G  | Room H  |
+#   y=0  +---------+---------+---------+---------+
+#        x=0       5         10        15        20
+#
+# Wall losses (dB per crossing) follow the COST 231 multi-wall model.
+name: office
+width: 20.0
+height: 12.0
+wall_height: 2.5
+wall_thickness: 0.15
+
+materials:
+  concrete: 12.0
+  brick: 7.0
+  drywall: 3.5
+  glass: 2.0
+
+walls:
+  # exterior shell
+  - {seg: [0, 0, 20, 0], material: concrete}
+  - {seg: [20, 0, 20, 12], material: concrete}
+  - {seg: [20, 12, 0, 12], material: concrete}
+  - {seg: [0, 12, 0, 0], material: concrete}
+  # corridor south wall (y = 5) with door gaps
+  - {seg: [0, 5, 2, 5], material: brick}
+  - {seg: [3, 5, 7, 5], material: brick}
+  - {seg: [8, 5, 12, 5], material: brick}
+  - {seg: [13, 5, 17, 5], material: brick}
+  - {seg: [18, 5, 20, 5], material: brick}
+  # corridor north wall (y = 7) with door gaps
+  - {seg: [0, 7, 2, 7], material: brick}
+  - {seg: [3, 7, 7, 7], material: brick}
+  - {seg: [8, 7, 12, 7], material: brick}
+  - {seg: [13, 7, 17, 7], material: brick}
+  - {seg: [18, 7, 20, 7], material: brick}
+  # room partitions
+  - {seg: [5, 0, 5, 5], material: drywall}
+  - {seg: [10, 0, 10, 5], material: concrete}   # structural core
+  - {seg: [15, 0, 15, 5], material: drywall}
+  - {seg: [5, 7, 5, 12], material: drywall}
+  - {seg: [10, 7, 10, 12], material: glass}     # glass meeting-room wall
+  - {seg: [15, 7, 15, 12], material: drywall}
+
+access_points:
+  - {id: AP1, x: 2.5, y: 10.8, tx_power: 20.0, channel: 1}
+  - {id: AP2, x: 12.5, y: 10.0, tx_power: 20.0, channel: 6}
+  - {id: AP3, x: 18.8, y: 8.5, tx_power: 20.0, channel: 11}
+  - {id: AP4, x: 7.0, y: 1.2, tx_power: 20.0, channel: 1}
+  - {id: AP5, x: 16.5, y: 1.8, tx_power: 20.0, channel: 6}
+  - {id: AP6, x: 10.5, y: 6.0, tx_power: 17.0, channel: 11}
+
+# Robot start pose (x, y, yaw) and a patrol route through doors.
+start_pose: [1.0, 6.0, 0.0]
+waypoints:
+  - [2.5, 6.0]
+  - [2.5, 9.5]
+  - [3.8, 10.5]
+  - [2.5, 9.5]
+  - [2.5, 6.0]
+  - [7.5, 6.0]
+  - [7.5, 2.5]
+  - [8.5, 1.5]
+  - [7.5, 2.5]
+  - [7.5, 6.0]
+  - [12.5, 6.0]
+  - [12.5, 9.5]
+  - [11.2, 10.8]
+  - [12.5, 9.5]
+  - [12.5, 6.0]
+  - [17.5, 6.0]
+  - [17.5, 2.5]
+  - [16.5, 3.5]
+  - [17.5, 2.5]
+  - [17.5, 6.0]
+  - [19.0, 6.0]
+  - [10.0, 6.0]
+  - [1.5, 6.0]
