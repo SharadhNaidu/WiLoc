@@ -57,8 +57,8 @@ class OdomNoiseNode(Node):
         rot1, trans, rot2 = odom_delta(self.prev, cur)
         self.prev = cur
         p, n = self.p, self.rng.standard_normal(5)
-        trans_n = trans * (1 + p["trans_bias"]) + p["k_trans"] * math.sqrt(trans) * n[0]
-        rot1_n = rot1 * (1 + p["rot_bias"]) + p["k_rot"] * math.sqrt(abs(rot1)) * n[1] + p["k_rot_per_m"] * math.sqrt(trans) * n[2]
+        trans_n = trans * (1 + p["trans_bias"]) + p["k_trans"] * math.sqrt(abs(trans)) * n[0]
+        rot1_n = rot1 * (1 + p["rot_bias"]) + p["k_rot"] * math.sqrt(abs(rot1)) * n[1] + p["k_rot_per_m"] * math.sqrt(abs(trans)) * n[2]
         rot2_n = rot2 * (1 + p["rot_bias"]) + p["k_rot"] * math.sqrt(abs(rot2)) * n[3]
         x, y, th = self.pose
         x += trans_n * math.cos(th + rot1_n)

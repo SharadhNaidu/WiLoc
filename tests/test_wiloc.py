@@ -195,3 +195,12 @@ def test_ekf_gates_outliers():
     ekf.init_pose([0, 0, 0])
     assert not ekf.update_position([50.0, 50.0], np.eye(2) * 0.5)
     assert ekf.update_position([0.2, -0.1], np.eye(2) * 0.5)
+
+
+def test_odom_delta_handles_reversing():
+    a = np.array([1.0, 1.0, 0.0])
+    b = np.array([0.9, 1.0, 0.05])  # 10 cm backwards while turning slightly
+    rot1, trans, rot2 = odom_delta(a, b)
+    assert trans == pytest.approx(-0.1) and abs(rot1) < 1e-9 and rot2 == pytest.approx(0.05)
+    out = OdometryMotionModel(0, 0, 0, 0).sample(np.array([a]), (rot1, trans, rot2), np.random.default_rng(0))
+    np.testing.assert_allclose(out[0], b, atol=1e-9)

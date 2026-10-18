@@ -127,7 +127,7 @@ class LocalizationNode(Node):
         if self.odom_pose is None:
             return
         d = odom_delta(self.used_odom, self.odom_pose)
-        if d[1] < 0.005 and abs(d[0]) + abs(d[2]) < 0.005:
+        if abs(d[1]) < 0.005 and abs(d[0]) + abs(d[2]) < 0.005:
             return
         self.used_odom = self.odom_pose.copy()
         if self.method == "pf":

@@ -74,7 +74,7 @@ class ParticleFilter:
 
     # ----------------------------------------------------------- steps
     def predict(self, delta):
-        if delta[1] < 1e-4 and abs(delta[0]) + abs(delta[2]) < 1e-4:
+        if abs(delta[1]) < 1e-4 and abs(delta[0]) + abs(delta[2]) < 1e-4:
             return
         new = self.motion.sample(self.particles, delta, self.rng)
         blocked = self.fp.crosses_wall(self.particles[:, :2], new[:, :2]) | ~self.fp.is_free(new[:, :2], 0.05)

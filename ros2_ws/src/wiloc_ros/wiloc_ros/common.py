@@ -51,5 +51,5 @@ def run_node(node_cls, on_shutdown=None):
         for step in (lambda: on_shutdown and on_shutdown(node), node.destroy_node, rclpy.try_shutdown):
             try:
                 step()
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, Exception):  # e.g. context already invalid
                 pass

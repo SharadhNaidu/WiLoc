@@ -80,10 +80,19 @@ class WheelOdometry:
 
 
 def odom_delta(p_prev, p_now):
-    """Decompose an odometry increment into (rot1, trans, rot2)."""
+    """Decompose an odometry increment into (rot1, trans, rot2).
+
+    Backward motion is returned as a negative ``trans`` instead of rot1 ~ pi
+    (and tiny translations as rot1 = 0); otherwise a robot jittering while it
+    turns on the spot would produce two spurious half turns per step, and
+    rotation noise proportional to them (cf. AMCL's handling of reversing).
+    """
     dx, dy = p_now[0] - p_prev[0], p_now[1] - p_prev[1]
     trans = np.hypot(dx, dy)
-    rot1 = wrap_angle(np.arctan2(dy, dx) - p_prev[2]) if trans > 1e-6 else 0.0
+    rot1 = float(wrap_angle(np.arctan2(dy, dx) - p_prev[2])) if trans > 1e-4 else 0.0
+    if abs(rot1) > np.pi / 2:
+        rot1 = float(wrap_angle(rot1 - np.pi))
+        trans = -trans
     rot2 = wrap_angle(p_now[2] - p_prev[2] - rot1)
     return float(rot1), float(trans), float(rot2)
 
