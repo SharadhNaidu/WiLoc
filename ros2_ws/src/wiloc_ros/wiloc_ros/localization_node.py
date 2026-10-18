@@ -59,10 +59,13 @@ class LocalizationNode(Node):
             "alpha4": 0.01,
             "knn_k": 4,
             "publish_rate": 10.0,
+            "update_min_d": 0.1,
+            "update_min_a": 0.2,
         }
         for k, v in params.items():
             self.declare_parameter(k, v)
         gp = lambda n: self.get_parameter(n).value
+        self.update_min_d, self.update_min_a = float(gp("update_min_d")), float(gp("update_min_a"))
 
         self.fp = load_floorplan(gp("floorplan"))
         self.method = gp("method")
@@ -116,6 +119,7 @@ class LocalizationNode(Node):
             self.pf.init_pose(pose)
             self.ekf.init_pose(pose)
         self.wknn_pose = np.array(pose, dtype=float)
+        self.update_odom = None  # odometry pose at the last PF measurement update
 
     # ---------------------------------------------------------- callbacks
     def on_odom(self, msg):
@@ -135,6 +139,19 @@ class LocalizationNode(Node):
         elif self.method == "ekf":
             self.ekf.predict(d)
 
+    def _moved_since_update(self) -> bool:
+        """AMCL-style gating: re-weight particles only after the robot moved.
+
+        Repeated scans from a standing robot share the same map error, so
+        applying them all makes the filter collapse onto one (possibly wrong)
+        mode before motion can disambiguate it.
+        """
+        if self.update_odom is None or self.odom_pose is None:
+            return True
+        d = self.odom_pose - self.update_odom
+        turned = abs((d[2] + math.pi) % (2 * math.pi) - math.pi)
+        return math.hypot(d[0], d[1]) >= self.update_min_d or turned >= self.update_min_a
+
     def on_scan(self, msg: RssiScan):
         z = np.array(msg.rssi_dbm, dtype=float)
         if len(z) != self.pf.map.mean.shape[0]:
@@ -144,7 +161,9 @@ class LocalizationNode(Node):
         xy, cov = self.fix_est.predict_with_cov(z[None])
         self.last_fix = (xy[0], cov[0])
         if self.method == "pf":
-            self.pf.update(z)
+            if self._moved_since_update():
+                self.pf.update(z)
+                self.update_odom = None if self.odom_pose is None else self.odom_pose.copy()
         elif self.method == "ekf":
             self.ekf.update_position(xy[0], cov[0])
         else:

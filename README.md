@@ -31,7 +31,7 @@ in [`docs/references.md`](docs/references.md).
 
 ## Results (reference office, 20 m × 12 m, 6 APs, 240 fingerprints)
 
-Reproduce with `python -m wiloc all`. The numbers below are from `results/summary.md`.
+Reproduce with `python -m wiloc all`. The numbers below are from [`docs/figures/summary.md`](docs/figures/summary.md), a snapshot of `results/summary.md`.
 
 **Single-scan estimators** (1000 random test points)
 
@@ -75,7 +75,21 @@ p90 columns in the table above. The noise sweep shows the probabilistic
 estimator gaining most when scans are clean, because it also uses the
 per-RP spread.
 
-**ROS 2 / Gazebo run** (one patrol lap, particle filter):
+**ROS 2 / Gazebo runs** (headless; error against Gazebo ground truth from the evaluator node)
+
+| Run | Filter RMSE | Raw Wi-Fi RMSE | Odometry RMSE |
+|---|---:|---:|---:|
+| `method:=pf`, one full patrol lap (~8 min) | **0.32 m** | 1.46 m | 3.71 m |
+| `method:=ekf`, 90 s | 0.36 m | 1.24 m | 0.22 m |
+| `method:=wknn`, 90 s (no filtering) | 1.27 m | 1.27 m | 0.43 m |
+| `global_init:=true`, 180 s | converges after ~70 s, then 0.2–0.35 m | | |
+
+In the 90 s runs, odometry has had little time to drift; over the full lap it
+reaches 3.7 m. Global localization in Gazebo is slower than in the offline
+simulator because Wi-Fi measures only position. Heading has to be inferred
+from motion, and the first legs of the patrol are short.
+
+Full-lap particle-filter run:
 
 ![gazebo](docs/figures/gazebo_run.png)
 
@@ -87,7 +101,7 @@ per-RP spread.
 
 ```bash
 pip install -e .                 # or: export PYTHONPATH=$PWD
-python -m pytest                 # 19 unit tests
+python -m pytest                 # 20 unit tests
 python -m wiloc all --out results          # all experiments + figures (a few minutes)
 python -m wiloc all --out results --quick  # faster, fewer samples
 ```

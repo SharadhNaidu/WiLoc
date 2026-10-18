@@ -101,6 +101,10 @@ candidates, so its fix can be used as a measurement in a Kalman filter.
      0.24–0.31 m). Global localization was not: with $\tau \ge 0.5$ the filter
      often locked onto a wrong mode early (RMSE 1.5–2.7 m, peaks of 4–8 m),
      while with $\tau \le 0.3$ it reached 0.26 m.
+   * In the ROS node the update only runs after the robot has moved at least
+     `update_min_d` = 0.1 m or `update_min_a` = 0.2 rad, as in AMCL. Scans from
+     a standing robot share the same map error; applying all of them collapses
+     the cloud onto one possibly wrong mode.
 3. **Resample.** Low-variance (systematic) resampling, run when
    $N_\text{eff} < N/2$.
 4. **Augmented MCL.** Short- and long-term averages of the likelihood

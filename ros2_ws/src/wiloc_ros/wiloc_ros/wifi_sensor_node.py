@@ -7,6 +7,11 @@ using the WiLoc propagation model (log-distance + multi-wall + correlated
 shadowing + temporal noise).  It also publishes the floor plan and access
 points as RViz markers and a heat map of the strongest-AP RSSI.
 
+Note: ``radio_seed`` and the noise parameters define the "real" radio world.
+If you change them, the localiser's radio map must come from a survey of the
+same world (same ``radio_seed``; a ``radio_map`` file surveyed with matching
+settings), otherwise the fingerprints describe a different building.
+
 Topics
   sub  /ground_truth          nav_msgs/Odometry
   pub  /wifi/scan             wiloc_msgs/RssiScan
