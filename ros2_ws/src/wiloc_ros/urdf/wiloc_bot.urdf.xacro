@@ -1,0 +1,147 @@
+<?xml version="1.0"?>
+<!-- WiLoc differential-drive robot (TurtleBot3-Burger-like footprint) with a
+     Wi-Fi antenna mast.  Gazebo plugins: diff drive with ENCODER odometry
+     (drifts like real wheel odometry), joint states, and a p3d ground-truth
+     pose used only for evaluation and by the simulated Wi-Fi card. -->
+<robot name="wiloc_bot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="wheel_radius" value="0.033"/>
+  <xacro:property name="wheel_width" value="0.018"/>
+  <xacro:property name="wheel_sep" value="0.160"/>
+  <xacro:property name="base_x" value="0.14"/>
+  <xacro:property name="base_y" value="0.14"/>
+  <xacro:property name="base_z" value="0.09"/>
+
+  <material name="dark"><color rgba="0.15 0.15 0.18 1"/></material>
+  <material name="blue"><color rgba="0.1 0.35 0.8 1"/></material>
+  <material name="red"><color rgba="0.85 0.1 0.1 1"/></material>
+
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertia ixx="${m*(y*y+z*z)/12}" ixy="0" ixz="0" iyy="${m*(x*x+z*z)/12}" iyz="0" izz="${m*(x*x+y*y)/12}"/>
+  </xacro:macro>
+
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${base_z/2}"/>
+      <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${base_z/2}"/>
+      <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 ${base_z/2}"/>
+      <mass value="1.0"/>
+      <xacro:box_inertia m="1.0" x="${base_x}" y="${base_y}" z="${base_z}"/>
+    </inertial>
+  </link>
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.010"/>
+  </joint>
+
+  <xacro:macro name="wheel" params="side y">
+    <link name="wheel_${side}_link">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="dark"/>
+      </visual>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.05"/>
+        <inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="3e-5"/>
+      </inertial>
+    </link>
+    <joint name="wheel_${side}_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="wheel_${side}_link"/>
+      <origin xyz="0 ${y} ${wheel_radius - 0.010}"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+    <gazebo reference="wheel_${side}_link">
+      <mu1>1.0</mu1><mu2>1.0</mu2><kp>500000</kp><kd>10</kd><minDepth>0.001</minDepth>
+      <material>Gazebo/DarkGrey</material>
+    </gazebo>
+  </xacro:macro>
+  <xacro:wheel side="left" y="${wheel_sep/2}"/>
+  <xacro:wheel side="right" y="${-wheel_sep/2}"/>
+
+  <xacro:macro name="caster" params="name x">
+    <link name="${name}_link">
+      <visual><geometry><sphere radius="0.012"/></geometry><material name="dark"/></visual>
+      <collision><geometry><sphere radius="0.012"/></geometry></collision>
+      <inertial><mass value="0.01"/><inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/></inertial>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}_link"/>
+      <origin xyz="${x} 0 0.002"/>
+    </joint>
+    <gazebo reference="${name}_link">
+      <mu1>0.0</mu1><mu2>0.0</mu2>
+    </gazebo>
+  </xacro:macro>
+  <xacro:caster name="caster_front" x="0.055"/>
+  <xacro:caster name="caster_back" x="-0.055"/>
+
+  <!-- Wi-Fi antenna mast (where RSSI is "measured") -->
+  <link name="wifi_antenna">
+    <visual>
+      <origin xyz="0 0 0.06"/>
+      <geometry><cylinder radius="0.006" length="0.12"/></geometry>
+      <material name="red"/>
+    </visual>
+  </link>
+  <joint name="wifi_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="wifi_antenna"/>
+    <origin xyz="-0.04 0 ${base_z}"/>
+  </joint>
+
+  <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
+  <gazebo reference="wifi_antenna"><material>Gazebo/Red</material></gazebo>
+
+  <gazebo>
+    <plugin name="wiloc_diff_drive" filename="libgazebo_ros_diff_drive.so">
+      <update_rate>30</update_rate>
+      <left_joint>wheel_left_joint</left_joint>
+      <right_joint>wheel_right_joint</right_joint>
+      <wheel_separation>${wheel_sep}</wheel_separation>
+      <wheel_diameter>${2*wheel_radius}</wheel_diameter>
+      <max_wheel_torque>2.0</max_wheel_torque>
+      <max_wheel_acceleration>2.0</max_wheel_acceleration>
+      <command_topic>cmd_vel</command_topic>
+      <publish_odom>true</publish_odom>
+      <!-- odom->base_footprint TF is published by odom_noise_node -->
+      <publish_odom_tf>false</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
+      <odometry_topic>odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <!-- 0 = ENCODER (integrated wheel joints), 1 = WORLD (cheating) -->
+      <odometry_source>0</odometry_source>
+    </plugin>
+
+    <plugin name="wiloc_joint_states" filename="libgazebo_ros_joint_state_publisher.so">
+      <update_rate>30</update_rate>
+      <joint_name>wheel_left_joint</joint_name>
+      <joint_name>wheel_right_joint</joint_name>
+    </plugin>
+
+    <plugin name="wiloc_ground_truth" filename="libgazebo_ros_p3d.so">
+      <ros><remapping>odom:=ground_truth</remapping></ros>
+      <body_name>base_footprint</body_name>
+      <frame_name>world</frame_name>
+      <update_rate>20</update_rate>
+      <gaussian_noise>0.0</gaussian_noise>
+    </plugin>
+  </gazebo>
+</robot>

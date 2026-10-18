@@ -3,6 +3,7 @@
     python -m wiloc all     [--out results] [--quick]   run every experiment
     python -m wiloc survey  [--floorplan F] [--spacing S] [--samples N] --map out.npz
     python -m wiloc locate  --map out.npz --rssi "-45,-70,nan,..."
+    python -m wiloc plot-eval ~/.ros/wiloc_eval.csv --out results/gazebo_run.png
 """
 
 from __future__ import annotations
@@ -41,7 +42,17 @@ def main(argv=None):
     loc.add_argument("--rssi", required=True, help="comma separated dBm values, 'nan' if unheard")
     loc.add_argument("-k", type=int, default=4)
 
+    pe = sub.add_parser("plot-eval", help="plot the CSV written by the ROS evaluator node")
+    pe.add_argument("csv")
+    pe.add_argument("--floorplan")
+    pe.add_argument("--out", default="results/gazebo_run.png")
+
     args = p.parse_args(argv)
+    if args.cmd == "plot-eval":
+        from .experiments import plot_eval_csv
+
+        print(plot_eval_csv(args.csv, _floorplan(args.floorplan), args.out))
+        return
     if args.cmd == "all":
         from .experiments import run_all
 

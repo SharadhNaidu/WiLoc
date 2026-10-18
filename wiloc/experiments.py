@@ -285,6 +285,54 @@ def exp_survey_scaling(world: World, out: Path) -> dict:
     return out_rows
 
 
+def plot_eval_csv(csv_path: str | Path, fp: FloorPlan, out: str | Path) -> dict:
+    """Figure + statistics for a Gazebo run logged by ``wiloc_ros``'s evaluator."""
+    a = np.genfromtxt(csv_path, delimiter=",", names=True)
+    t = a["t"] - a["t"][0]
+    truth = np.column_stack([a["true_x"], a["true_y"]])
+    series = {
+        "Odometry only": np.column_stack([a["odom_x"], a["odom_y"]]),
+        "Wi-Fi fix (WKNN)": np.column_stack([a["fix_x"], a["fix_y"]]),
+        "WiLoc filter": np.column_stack([a["est_x"], a["est_y"]]),
+    }
+    colors = {"Odometry only": "#7f7f7f", "Wi-Fi fix (WKNN)": "#ff7f0e", "WiLoc filter": "#1f77b4"}
+    fig = plt.figure(figsize=(15, 5.5), constrained_layout=True)
+    gs = fig.add_gridspec(1, 3, width_ratios=[2.2, 1.3, 1])
+    ax = fig.add_subplot(gs[0])
+    draw_floorplan(ax, fp)
+    ax.plot(truth[:, 0], truth[:, 1], "k-", lw=2.5, label="Ground truth (Gazebo)")
+    stats = {}
+    ax_t, ax_c = fig.add_subplot(gs[1]), fig.add_subplot(gs[2])
+    for name, xy in series.items():
+        ok = np.all(np.isfinite(xy), axis=1)
+        if not ok.any():
+            continue
+        e = np.linalg.norm(xy[ok] - truth[ok], axis=1)
+        stats[name] = summarize(e)
+        if name.startswith("Wi-Fi"):
+            ax.scatter(xy[ok, 0], xy[ok, 1], s=4, alpha=0.3, c=colors[name], label=name)
+        else:
+            ax.plot(xy[ok, 0], xy[ok, 1], lw=1.4, c=colors[name], label=name)
+        ax_t.plot(t[ok], e, lw=0.8 if name.startswith("Wi-Fi") else 1.5, alpha=0.5 if name.startswith("Wi-Fi") else 1, c=colors[name], label=name)
+        x, y = ecdf(e)
+        ax_c.plot(x, y, lw=2, c=colors[name], label=f"{name}\nRMSE {stats[name]['rmse']:.2f} m")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=8)
+    ax.set_title("ROS 2 / Gazebo run")
+    ax_t.set_xlabel("time [s]")
+    ax_t.set_ylabel("error [m]")
+    ax_t.set_ylim(0, max(4.0, min(10.0, ax_t.get_ylim()[1])))
+    ax_c.set_xlabel("error [m]")
+    ax_c.set_ylabel("CDF")
+    ax_c.set_xlim(0, 4)
+    ax_c.legend(fontsize=7, loc="lower right")
+    for a_ in (ax_t, ax_c):
+        a_.grid(alpha=0.3)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    return stats
+
+
 def run_all(out: str | Path = "results", quick: bool = False) -> dict:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
