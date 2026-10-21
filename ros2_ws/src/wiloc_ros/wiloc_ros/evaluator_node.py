@@ -2,23 +2,34 @@
 
 Publishes the instantaneous position error of the filter, of the raw Wi-Fi
 fix and of dead reckoning, logs a summary every ``report_period`` seconds and
-writes a CSV (``output_csv``) on shutdown for offline plotting.
+writes a CSV (``output_csv``) periodically and on shutdown for offline plotting.
+
+Topics
+  pub  /wiloc/error                std_msgs/Float64  filter position error [m]
+  pub  /wiloc/wifi_fix_error       std_msgs/Float64
+  pub  /wiloc/errors               std_msgs/String   JSON: current errors + running RMSE
+  pub  /wiloc/ground_truth_path    nav_msgs/Path
+  pub  /wiloc/odom_path            nav_msgs/Path     dead reckoning in the map frame
+  pub  /wiloc/truth_marker         visualization_msgs/Marker  true robot pose
 """
 
 from __future__ import annotations
 
 import csv
+import json
 import os
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
-from std_msgs.msg import Float64
+from std_msgs.msg import ColorRGBA, Float64, String
+from visualization_msgs.msg import Marker
 
 from wiloc.metrics import summarize
 
-from .common import load_floorplan, pose2d_from_odom, run_node
+from . import theme
+from .common import load_floorplan, pose2d_from_odom, run_node, yaw_to_quat
 
 
 class Evaluator(Node):
@@ -34,26 +45,22 @@ class Evaluator(Node):
         self.est = self.fix = self.odom = None
         self.err_pub = self.create_publisher(Float64, "/wiloc/error", 10)
         self.fix_err_pub = self.create_publisher(Float64, "/wiloc/wifi_fix_error", 10)
+        self.errors_pub = self.create_publisher(String, "/wiloc/errors", 10)
         self.truth_path_pub = self.create_publisher(Path, "/wiloc/ground_truth_path", 5)
-        self.truth_path = Path()
-        self.truth_path.header.frame_id = "map"
+        self.odom_path_pub = self.create_publisher(Path, "/wiloc/odom_path", 5)
+        self.truth_marker_pub = self.create_publisher(Marker, "/wiloc/truth_marker", 5)
+        self.truth_path, self.odom_path = Path(), Path()
+        self.truth_path.header.frame_id = self.odom_path.header.frame_id = "map"
         self.create_subscription(Odometry, "/ground_truth", self.on_truth, 20)
         self.create_subscription(PoseWithCovarianceStamped, "/wiloc/pose", self.on_est, 10)
         self.create_subscription(PoseWithCovarianceStamped, "/wiloc/wifi_fix", self.on_fix, 10)
         self.create_subscription(Odometry, "/wheel_odom", self.on_odom, 20)
         self.create_timer(float(self.get_parameter("report_period").value), self.report)
+        self.create_timer(0.5, self.publish_paths)
 
     def on_truth(self, msg):
         self.truth = np.array(pose2d_from_odom(msg))
-        if not self.truth_path.poses or len(self.rows) % 5 == 0:
-            ps = PoseStamped()
-            ps.header = msg.header
-            ps.header.frame_id = "map"
-            ps.pose = msg.pose.pose
-            self.truth_path.poses.append(ps)
-            self.truth_path.poses = self.truth_path.poses[-3000:]
-            self.truth_path.header.stamp = msg.header.stamp
-            self.truth_path_pub.publish(self.truth_path)
+        self.truth_stamp = msg.header.stamp
 
     def on_odom(self, msg):
         # Express dead reckoning in the map frame by anchoring it at the start pose.
@@ -77,6 +84,39 @@ class Evaluator(Node):
         self.rows.append(
             [t, *self.truth[:2], *self.est, *(self.fix if self.fix is not None else nan2), *(self.odom if self.odom is not None else nan2)]
         )
+        current = {"filter": e}
+        if self.fix is not None:
+            current["wifi_fix"] = float(np.linalg.norm(self.fix - self.truth[:2]))
+        if self.odom is not None:
+            current["odometry"] = float(np.linalg.norm(self.odom - self.truth[:2]))
+        rmse = {k: v["rmse"] for k, v in self._errors().items()} if len(self.rows) % 10 == 0 else None
+        self.errors_pub.publish(String(data=json.dumps({"t": t, "current": current, "rmse": rmse, "samples": len(self.rows)})))
+
+    def publish_paths(self):
+        if self.truth is None:
+            return
+        stamp = self.get_clock().now().to_msg()
+        for path, xy, pub in ((self.truth_path, self.truth[:2], self.truth_path_pub), (self.odom_path, self.odom, self.odom_path_pub)):
+            if xy is None:
+                continue
+            ps = PoseStamped()
+            ps.header.stamp, ps.header.frame_id = stamp, "map"
+            ps.pose.position.x, ps.pose.position.y = float(xy[0]), float(xy[1])
+            ps.pose.orientation.w = 1.0
+            path.poses.append(ps)
+            path.poses = path.poses[-2000:]
+            path.header.stamp = stamp
+            pub.publish(path)
+
+        m = Marker()
+        m.header.frame_id, m.header.stamp = "map", stamp
+        m.ns, m.id, m.type, m.action = "ground_truth", 0, Marker.ARROW, Marker.ADD
+        m.pose.position.x, m.pose.position.y, m.pose.position.z = float(self.truth[0]), float(self.truth[1]), 0.05
+        m.pose.orientation = yaw_to_quat(float(self.truth[2]))
+        m.scale.x, m.scale.y, m.scale.z = 0.55, 0.12, 0.12
+        r, g, b = theme.rgb(theme.TEXT)
+        m.color = ColorRGBA(r=r, g=g, b=b, a=0.95)
+        self.truth_marker_pub.publish(m)
 
     def _errors(self):
         a = np.array(self.rows)

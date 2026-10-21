@@ -6,95 +6,117 @@ Panels:
 Visualization Manager:
   Class: ""
   Global Options:
-    Background Color: 32; 34; 40
+    Background Color: 255; 255; 255
     Fixed Frame: map
     Frame Rate: 30
   Displays:
-    - Class: rviz_default_plugins/Map
-      Name: RSSI heat map (strongest AP)
+    - Class: rviz_default_plugins/MarkerArray
+      Name: RSSI heat map (H cycles APs)
       Enabled: true
-      Alpha: 0.55
-      Color Scheme: costmap
       Topic:
-        Value: /wiloc/rssi_heatmap
+        Value: /wiloc/rssi_heatmap_markers
         Durability Policy: Transient Local
         Reliability Policy: Reliable
         Depth: 1
     - Class: rviz_default_plugins/MarkerArray
-      Name: Floor plan and APs
+      Name: Floor plan, APs, title
       Enabled: true
       Topic:
         Value: /wiloc/environment
         Durability Policy: Transient Local
         Reliability Policy: Reliable
         Depth: 1
-    - Class: rviz_default_plugins/RobotModel
-      Name: Robot (TF via map->odom->base)
-      Enabled: true
-      Description Topic:
-        Value: /robot_description
-        Durability Policy: Transient Local
-    - Class: rviz_default_plugins/PoseArray
-      Name: Particles
-      Enabled: true
-      Topic:
-        Value: /wiloc/particles
-      Color: 255; 200; 40
-      Shape: Arrow (Flat)
-      Arrow Length: 0.15
-      Head Length: 0.04
-      Head Radius: 0.03
-      Shaft Length: 0.11
-      Shaft Radius: 0.01
-    - Class: rviz_default_plugins/PoseWithCovariance
-      Name: WiLoc estimate
-      Enabled: true
-      Topic:
-        Value: /wiloc/pose
-      Shape: Arrow
-      Color: 30; 144; 255
-      Shaft Length: 0.4
-      Shaft Radius: 0.05
-      Head Length: 0.15
-      Head Radius: 0.1
-      Covariance:
-        Position:
-          Alpha: 0.35
-          Color: 30; 144; 255
-          Scale: 2
-        Orientation:
-          Value: false
-    - Class: rviz_default_plugins/PoseWithCovariance
-      Name: Raw Wi-Fi fix (WKNN)
-      Enabled: true
-      Topic:
-        Value: /wiloc/wifi_fix
-      Shape: Axes
-      Axes Length: 0.2
-      Axes Radius: 0.03
-      Covariance:
-        Position:
-          Alpha: 0.15
-          Color: 255; 120; 0
-          Scale: 1
-        Orientation:
-          Value: false
     - Class: rviz_default_plugins/Path
-      Name: Estimated path
+      Name: Odometry only (dead reckoning)
       Enabled: true
       Topic:
-        Value: /wiloc/path
-      Color: 30; 144; 255
+        Value: /wiloc/odom_path
+      Color: 138; 151; 171
       Line Style: Lines
     - Class: rviz_default_plugins/Path
       Name: Ground-truth path
       Enabled: true
       Topic:
         Value: /wiloc/ground_truth_path
-      Color: 255; 255; 255
-      Line Style: Lines
+      Color: 27; 31; 36
+      Line Style: Billboards
+      Line Width: 0.04
+    - Class: rviz_default_plugins/Path
+      Name: WiLoc estimated path
+      Enabled: true
+      Topic:
+        Value: /wiloc/path
+      Color: 90; 169; 230
+      Line Style: Billboards
+      Line Width: 0.05
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Wi-Fi links (robot to AP, coloured by RSSI)
+      Enabled: true
+      Topic:
+        Value: /wiloc/wifi_links
+    - Class: rviz_default_plugins/PoseArray
+      Name: Particles
+      Enabled: true
+      Topic:
+        Value: /wiloc/particles
+      Color: 246; 185; 59
+      Shape: Arrow (Flat)
+      Arrow Length: 0.18
+      Head Length: 0.05
+      Head Radius: 0.03
+      Shaft Length: 0.13
+      Shaft Radius: 0.01
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Name: Raw Wi-Fi fix (WKNN)
+      Enabled: true
+      Topic:
+        Value: /wiloc/wifi_fix
+      Shape: Axes
+      Axes Length: 0.25
+      Axes Radius: 0.04
+      Covariance:
+        Position:
+          Alpha: 0.15
+          Color: 255; 107; 74
+          Scale: 1
+        Orientation:
+          Value: false
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Name: WiLoc estimate
+      Enabled: true
+      Topic:
+        Value: /wiloc/pose
+      Shape: Arrow
+      Color: 90; 169; 230
+      Shaft Length: 0.45
+      Shaft Radius: 0.06
+      Head Length: 0.18
+      Head Radius: 0.13
+      Covariance:
+        Position:
+          Alpha: 0.3
+          Color: 90; 169; 230
+          Scale: 2
+        Orientation:
+          Value: false
+    - Class: rviz_default_plugins/Marker
+      Name: True robot pose (black arrow)
+      Enabled: true
+      Topic:
+        Value: /wiloc/truth_marker
+    - Class: rviz_default_plugins/RobotModel
+      Name: Robot model (at estimated pose via TF)
+      Enabled: true
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Status text
+      Enabled: true
+      Topic:
+        Value: /wiloc/hud
     - Class: rviz_default_plugins/TF
-      Name: TF
+      Name: TF frames
       Enabled: false
   Tools:
     - Class: rviz_default_plugins/MoveCamera
@@ -108,8 +130,14 @@ Visualization Manager:
       Name: Top
       X: 10
       Y: 6
-      Scale: 45
+      Scale: 60
       Angle: 0
 Window Geometry:
+  Displays:
+    collapsed: true
+  Hide Left Dock: true
+  Hide Right Dock: true
+  X: 0
+  Y: 0
   Width: 1500
   Height: 900

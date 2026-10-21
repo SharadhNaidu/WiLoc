@@ -13,29 +13,39 @@ Publishes
   /wiloc/particles   geometry_msgs/PoseArray                   (pf only)
   /wiloc/wifi_fix    geometry_msgs/PoseWithCovarianceStamped   raw WKNN fix
   /wiloc/path        nav_msgs/Path
+  /wiloc/status      std_msgs/String  JSON: filter internals + radio-map
+                     prediction at the estimate (for the dashboard)
+  /wiloc/hud         visualization_msgs/MarkerArray  status text for RViz
   TF map -> odom
 Subscribes
   /initialpose       re-initialise around a pose set in RViz ("2D Pose Estimate")
+Services
+  /wiloc/global_localization   std_srvs/Empty: forget the pose, spread particles
 """
 
 from __future__ import annotations
 
+import json
 import math
 
 import numpy as np
 from geometry_msgs.msg import Pose, PoseArray, PoseStamped, PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
+from std_msgs.msg import ColorRGBA, String
 from std_srvs.srv import Empty
 from tf2_ros import TransformBroadcaster
+from visualization_msgs.msg import Marker, MarkerArray
 
 from wiloc.estimators import KNN
 from wiloc.filters import ParticleFilter, WifiEKF
 from wiloc.fingerprint import DenseRadioMap, RadioMap
+from wiloc.geometry import wrap_angle
 from wiloc.motion import OdometryMotionModel, odom_delta
 from wiloc.radio import RadioConfig, RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
+from . import theme
 from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, run_node, yaw_to_quat
 
 
@@ -61,33 +71,42 @@ class LocalizationNode(Node):
             "publish_rate": 10.0,
             "update_min_d": 0.1,
             "update_min_a": 0.2,
+            "update_max_interval": 2.0,
         }
         for k, v in params.items():
             self.declare_parameter(k, v)
         gp = lambda n: self.get_parameter(n).value
         self.update_min_d, self.update_min_a = float(gp("update_min_d")), float(gp("update_min_a"))
+        self.update_max_interval = float(gp("update_max_interval"))
 
         self.fp = load_floorplan(gp("floorplan"))
         self.method = gp("method")
-        rmap = self._load_or_survey(gp("radio_map"), int(gp("radio_seed")), gp("survey_spacing"), gp("survey_samples"))
-        dense = DenseRadioMap.from_radio_map(rmap, self.fp, method=gp("map_method"))
-        self.fix_est = KNN(int(gp("knn_k")), weighted=True).fit(rmap)
+        self.rmap = self._load_or_survey(gp("radio_map"), int(gp("radio_seed")), gp("survey_spacing"), gp("survey_samples"))
+        self.dense = DenseRadioMap.from_radio_map(self.rmap, self.fp, method=gp("map_method"))
+        self.fix_est = KNN(int(gp("knn_k")), weighted=True).fit(self.rmap)
         mm = OdometryMotionModel(gp("alpha1"), gp("alpha2"), gp("alpha3"), gp("alpha4"))
         self.pf = ParticleFilter(
-            self.fp, dense, int(gp("n_particles")), mm, temper=float(gp("likelihood_temper")), rng=np.random.default_rng(0)
+            self.fp, self.dense, int(gp("n_particles")), mm, temper=float(gp("likelihood_temper")), rng=np.random.default_rng(0)
         )
         self.ekf = WifiEKF(mm)
         self.global_init = bool(gp("global_init"))
-        self.reset(np.array(self.fp.start_pose, dtype=float), self.global_init)
 
+        # The diff-drive plugin's odometry starts at the odom-frame origin when
+        # the robot is spawned at ``start_pose``; using that origin (instead of
+        # the first message received) stays correct even if the robot has
+        # already moved by the time this node finishes its survey.
         self.odom_pose = None  # latest odometry pose (odom frame)
-        self.used_odom = None  # odometry pose up to which the filter has been propagated
+        self.used_odom = np.zeros(3)  # odometry pose up to which the filter has been propagated
         self.last_fix = None
+        self.counts = {"scans": 0, "updates": 0, "skipped_stationary": 0, "ignored": 0}
+        self.reset(np.array(self.fp.start_pose, dtype=float), self.global_init, odom_yaw=0.0)
 
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, "/wiloc/pose", 10)
         self.fix_pub = self.create_publisher(PoseWithCovarianceStamped, "/wiloc/wifi_fix", 10)
         self.cloud_pub = self.create_publisher(PoseArray, "/wiloc/particles", 5)
         self.path_pub = self.create_publisher(Path, "/wiloc/path", 5)
+        self.status_pub = self.create_publisher(String, "/wiloc/status", 10)
+        self.hud_pub = self.create_publisher(MarkerArray, "/wiloc/hud", 5)
         self.tf = TransformBroadcaster(self)
         self.path = Path()
         self.path.header.frame_id = "map"
@@ -98,8 +117,8 @@ class LocalizationNode(Node):
         self.create_service(Empty, "/wiloc/global_localization", self.on_global)
         self.create_timer(1.0 / float(gp("publish_rate")), self.on_timer)
         self.get_logger().info(
-            f"WiLoc localisation: method={self.method}, {len(rmap.positions)} fingerprints, "
-            f"{rmap.n_aps} APs, {'global' if self.global_init else 'tracking'} initialisation"
+            f"WiLoc localisation: method={self.method}, {len(self.rmap.positions)} fingerprints, "
+            f"{self.rmap.n_aps} APs, {'global' if self.global_init else 'tracking'} initialisation"
         )
 
     # ---------------------------------------------------------- setup
@@ -111,7 +130,7 @@ class LocalizationNode(Node):
         sim = RadioSimulator(self.fp, RadioConfig(seed=seed))
         return RadioMap.survey(sim, self.fp.grid(float(spacing)), int(samples), np.random.default_rng(123))
 
-    def reset(self, pose, global_init=False):
+    def reset(self, pose, global_init=False, odom_yaw=None):
         if global_init:
             self.pf.init_global()
             self.ekf.init_pose(pose, np.diag([25.0, 25.0, 3.0]))
@@ -119,13 +138,16 @@ class LocalizationNode(Node):
             self.pf.init_pose(pose)
             self.ekf.init_pose(pose)
         self.wknn_pose = np.array(pose, dtype=float)
+        # WKNN gives no heading: carry it from odometry, offset to the map frame.
+        if odom_yaw is None:
+            odom_yaw = self.odom_pose[2] if self.odom_pose is not None else 0.0
+        self.wknn_yaw_offset = float(pose[2] - odom_yaw)
         self.update_odom = None  # odometry pose at the last PF measurement update
+        self.last_update_t = -1e9
 
     # ---------------------------------------------------------- callbacks
     def on_odom(self, msg):
         self.odom_pose = np.array(pose2d_from_odom(msg))
-        if self.used_odom is None:
-            self.used_odom = self.odom_pose.copy()
 
     def propagate(self):
         if self.odom_pose is None:
@@ -139,35 +161,61 @@ class LocalizationNode(Node):
         elif self.method == "ekf":
             self.ekf.predict(d)
 
-    def _moved_since_update(self) -> bool:
-        """AMCL-style gating: re-weight particles only after the robot moved.
+    def _should_update(self) -> bool:
+        """AMCL-style gating: re-weight particles after the robot has moved.
 
         Repeated scans from a standing robot share the same map error, so
         applying them all makes the filter collapse onto one (possibly wrong)
-        mode before motion can disambiguate it.
+        mode before motion can disambiguate it.  A standing robot still gets an
+        update every ``update_max_interval`` seconds, otherwise a parked robot
+        could never re-localise after global initialisation or a kidnapping.
         """
         if self.update_odom is None or self.odom_pose is None:
+            return True
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if now - self.last_update_t >= self.update_max_interval:
             return True
         d = self.odom_pose - self.update_odom
         turned = abs((d[2] + math.pi) % (2 * math.pi) - math.pi)
         return math.hypot(d[0], d[1]) >= self.update_min_d or turned >= self.update_min_a
 
+    def _scan_to_map_order(self, msg: RssiScan):
+        """RSSI vector ordered like the radio map's APs (matched by AP id)."""
+        index = {ap: i for i, ap in enumerate(msg.ap_ids)}
+        missing = [ap for ap in self.rmap.ap_ids if ap not in index]
+        if len(missing) == len(self.rmap.ap_ids):
+            return None
+        if missing and self.counts["scans"] == 0:
+            self.get_logger().warn(f"APs in the radio map but not in scans (treated as not heard): {missing}")
+        return np.array([msg.rssi_dbm[index[ap]] if ap in index else np.nan for ap in self.rmap.ap_ids], dtype=float)
+
     def on_scan(self, msg: RssiScan):
-        z = np.array(msg.rssi_dbm, dtype=float)
-        if len(z) != self.pf.map.mean.shape[0]:
-            self.get_logger().warn("scan AP count does not match radio map; ignoring")
+        z = self._scan_to_map_order(msg)
+        if z is None:
+            self.counts["ignored"] += 1
+            self.get_logger().warn("scan shares no AP ids with the radio map; ignoring", throttle_duration_sec=5.0)
             return
+        self.pf.sens = float(msg.sensitivity_dbm)
+        self.counts["scans"] += 1
         self.propagate()
         xy, cov = self.fix_est.predict_with_cov(z[None])
         self.last_fix = (xy[0], cov[0])
+        self.last_scan = z
         if self.method == "pf":
-            if self._moved_since_update():
+            if self._should_update():
                 self.pf.update(z)
+                self.counts["updates"] += 1
+                self.last_update_t = self.get_clock().now().nanoseconds * 1e-9
                 self.update_odom = None if self.odom_pose is None else self.odom_pose.copy()
+            else:
+                self.counts["skipped_stationary"] += 1
         elif self.method == "ekf":
-            self.ekf.update_position(xy[0], cov[0])
+            if not np.isnan(z).all():
+                self.ekf.update_position(xy[0], cov[0])
+                self.counts["updates"] += 1
         else:
             self.wknn_pose[:2] = xy[0]
+            self.counts["updates"] += 1
         self.publish_fix(msg.header.stamp)
 
     def on_initialpose(self, msg):
@@ -190,7 +238,7 @@ class LocalizationNode(Node):
         else:
             pose = self.wknn_pose.copy()
             if self.odom_pose is not None:
-                pose[2] = self.odom_pose[2]
+                pose[2] = float(wrap_angle(self.odom_pose[2] + self.wknn_yaw_offset))
             cov = self.last_fix[1] if self.last_fix else np.eye(2)
         return pose, cov
 
@@ -238,6 +286,51 @@ class LocalizationNode(Node):
             t.transform.translation.y = float(pose[1] - (s_ * ox + c_ * oy))
             t.transform.rotation = yaw_to_quat(yaw)
             self.tf.sendTransform(t)
+
+        self.publish_status(pose, cov, now)
+
+    def publish_status(self, pose, cov, stamp):
+        mu, sd = self.dense.lookup(pose[None, :2])
+        spread = float(math.sqrt(max(np.trace(cov), 0.0)))
+        status = {
+            "method": self.method,
+            "pose": [float(pose[0]), float(pose[1]), float(pose[2])],
+            "spread_m": spread,
+            "counts": self.counts,
+            "ap_ids": list(self.rmap.ap_ids),
+            "map_rssi_at_estimate": [float(v) for v in mu[0]],
+            "map_std_at_estimate": [float(v) for v in sd[0]],
+            "fix": None if self.last_fix is None else [float(self.last_fix[0][0]), float(self.last_fix[0][1])],
+        }
+        if self.method == "pf":
+            status.update(
+                {
+                    "n_particles": self.pf.n,
+                    "ess": float(self.pf.ess()),
+                    "resamples": self.pf.n_resamples,
+                    "injected": self.pf.n_injected,
+                    "w_ratio": float(self.pf.w_fast / self.pf.w_slow) if self.pf.w_slow else 1.0,
+                }
+            )
+        self.status_pub.publish(String(data=json.dumps(status)))
+
+        hud = Marker()
+        hud.header.frame_id, hud.header.stamp = "map", stamp
+        hud.ns, hud.id, hud.type, hud.action = "hud", 0, Marker.TEXT_VIEW_FACING, Marker.ADD
+        hud.pose.position.x, hud.pose.position.y, hud.pose.position.z = self.fp.width / 2, -1.0, 0.5
+        hud.pose.orientation.w = 1.0
+        hud.scale.z = 0.5
+        r, g, b = theme.rgb(theme.AMBER)
+        hud.color = ColorRGBA(r=r, g=g, b=b, a=1.0)
+        name = {"pf": "Particle filter", "ekf": "EKF", "wknn": "WKNN (no filter)"}.get(self.method, self.method)
+        text = f"{name}  |  pose ({pose[0]:.2f}, {pose[1]:.2f}, {math.degrees(pose[2]):.0f} deg)  |  sigma {spread:.2f} m"
+        if self.method == "pf":
+            text += f"  |  N_eff {status['ess']:.0f}/{self.pf.n}"
+        text += f"  |  Wi-Fi updates {self.counts['updates']}"
+        hud.text = text
+        arr = MarkerArray()
+        arr.markers.append(hud)
+        self.hud_pub.publish(arr)
 
     def publish_fix(self, stamp):
         xy, cov = self.last_fix

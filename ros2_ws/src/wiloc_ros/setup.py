@@ -30,6 +30,7 @@ setup(
             "waypoint_driver = wiloc_ros.waypoint_driver:main",
             "evaluator = wiloc_ros.evaluator_node:main",
             "world_gen = wiloc_ros.world_gen:main",
+            "dashboard = wiloc_ros.dashboard_node:main",
         ],
     },
 )
