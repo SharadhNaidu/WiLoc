@@ -43,7 +43,7 @@ library catalogues. Remaining uncertainties are noted where they apply.
 ### Datasets and surveys
 
 12. J. Torres-Sospedra et al., "UJIIndoorLoc: A new multi-building and multi-floor database for WLAN fingerprint-based indoor localization problems," *Proc. IPIN 2014*, pp. 261–270. [doi:10.1109/IPIN.2014.7275492](https://doi.org/10.1109/IPIN.2014.7275492)
-    - Relevance: a real dataset to validate the estimators against (see *Extending WiLoc* in the README).
+    - Relevance: a real dataset to validate the estimators against.
 13. S. He, S.-H. G. Chan, "Wi-Fi fingerprint-based indoor positioning: Recent advances and comparisons," *IEEE Commun. Surveys & Tutorials*, 18(1):466–490, 2016. [doi:10.1109/COMST.2015.2464084](https://doi.org/10.1109/COMST.2015.2464084)
 14. F. Zafari, A. Gkelias, K. K. Leung, "A survey of indoor localization systems and technologies," *IEEE Commun. Surveys & Tutorials*, 21(3):2568–2599, 2019. [doi:10.1109/COMST.2019.2911558](https://doi.org/10.1109/COMST.2019.2911558)
 
