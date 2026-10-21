@@ -1,151 +1,246 @@
-# WiLoc: how to run it
+# WiLoc: step-by-step instructions
 
-WiLoc simulates a humanoid robot on wheels driving around an office. The robot
-works out where it is from Wi-Fi signal strength combined with its wheel
-odometry. You drive the robot in **Gazebo** and watch the localisation live in
-the **WiLoc window**.
+Follow these steps **in order** and do not skip any. Copy each command exactly
+and paste it into the terminal. You do not need to understand the commands.
+
+**What you will get:** a 3D office in which a small humanoid robot on wheels
+drives around. You drive the robot with the arrow keys. A second window shows
+where the robot really is and where Wi-Fi tells us it is.
 
 ---
 
-## 1. What you need
+## Step 0: Check that your computer can run it
 
-* Ubuntu **22.04** (a VM is fine)
-* **ROS 2 Humble**, installed in `/opt/ros/humble`
-* Internet access the first time, so the setup step can install a few packages
+You need:
 
-Other ROS 2 versions (Iron, Jazzy) will not work: WiLoc uses Gazebo
-Classic (Gazebo 11), which only ships with Humble.
+* **Ubuntu 22.04**. A virtual machine (VirtualBox or VMware) is fine.
+* **ROS 2 Humble**. Your VM probably has it already.
 
-To check your setup:
+**Open a terminal:** press **Ctrl + Alt + T** at the same time. A window with
+a black or purple background opens. This is the terminal; you type or paste
+commands into it.
+
+> **How to paste into the terminal:** use **Ctrl + Shift + V**, not just
+> Ctrl + V. After pasting, press **Enter** to run the command.
+
+Paste this and press Enter:
 
 ```bash
-ls /opt/ros/humble/setup.bash     # this file must exist
-lsb_release -rs                   # should print 22.04
+ls /opt/ros/humble/setup.bash && lsb_release -rs
 ```
+
+You should see:
+
+```
+/opt/ros/humble/setup.bash
+22.04
+```
+
+* If you see that, continue with Step 1.
+* If you see `No such file or directory`, ROS 2 Humble is not installed.
+  Ask the team before going further, because WiLoc only works with ROS 2
+  Humble.
 
 ---
 
-## 2. Get the code
+## Step 1: Install git (skip this if you already have it)
 
-Put the `WiLoc` folder anywhere in your home directory, either with
-`git clone <repo-url>` or by copying the folder. Then open a terminal in it:
+Paste this and press Enter:
 
 ```bash
-cd ~/WiLoc        # or wherever you put it
+sudo apt update && sudo apt install -y git
 ```
+
+It asks for your **password**: the one you use to log in to Ubuntu.
+**Nothing appears on screen while you type the password. That is normal.**
+Type it and press Enter.
+
+Wait until the command finishes and you can type again.
 
 ---
 
-## 3. One-time setup (about 5 minutes)
+## Step 2: Download WiLoc
+
+Paste this and press Enter:
+
+```bash
+cd ~ && git clone https://github.com/SharadhNaidu/WiLoc.git && cd WiLoc
+```
+
+This downloads the project into a folder called `WiLoc` in your home
+folder, and moves the terminal into it.
+
+**Check:** the last part of the line where you type should now show
+`~/WiLoc`.
+
+---
+
+## Step 3: One-time setup (about 5-10 minutes)
+
+Paste this and press Enter:
 
 ```bash
 ./wiloc.sh setup
 ```
 
-This does two things:
+* It may ask for your password again. Type it (nothing shows) and press Enter.
+* A lot of text will scroll past. That is normal. Wait.
+* It is finished when you see:
 
-* asks for your password and installs the packages WiLoc needs: Gazebo ROS,
-  xacro, PyQt5, matplotlib, scipy and a few others;
-* builds everything into `~/wiloc_ws`, so nothing is built inside the
-  `WiLoc` folder.
+  ```
+  [wiloc] setup done. Start the simulation with:  ./wiloc.sh run
+  ```
 
-At the end it prints `setup done`.
+> **If you see `Permission denied`:** paste `chmod +x wiloc.sh`, press
+> Enter, then run `./wiloc.sh setup` again.
 
-> If you get `Permission denied`, run `chmod +x wiloc.sh` once, then repeat
-> the command.
+**You only do Steps 1 to 3 once.**
 
 ---
 
-## 4. Run it
+## Step 4: Start the simulation
+
+Paste this and press Enter:
 
 ```bash
 ./wiloc.sh run
 ```
 
-Two windows open after about 20 to 40 seconds:
+Wait **20 to 60 seconds**. Two windows will open:
 
-| Window | What it is |
-|---|---|
-| **Gazebo** (left) | The 3D office and the robot. You drive the robot here. |
-| **WiLoc** (right) | Everything the localisation is doing, updated live. |
+* **Gazebo** (left): the 3D office with the robot in it. The robot is the
+  white humanoid with blue eyes standing in the corridor.
+* **WiLoc** (right): a map with coloured areas, plus some graphs.
 
-To stop the simulation, press **Ctrl+C** in the terminal. If anything is
-left running, use `./wiloc.sh stop`.
-
-### Driving the robot
-
-Click once inside Gazebo's 3D view, then hold the keys:
-
-| Key | Action |
-|---|---|
-| **Up / Down arrow** | drive forward / backward |
-| **Left / Right arrow** | turn left / right |
-| hold two arrows | drive in a curve |
-| **Space** | stop |
-| **M** | switch between automatic patrol and manual driving |
-| **K** | *kidnap*: teleport the robot somewhere random. Watch the filter find it again. |
-| **G** | make the filter forget where the robot is (global localisation) |
-| **H** | change the heat map: strongest AP, then each AP in turn |
-
-The same keys also work when the WiLoc window has focus. There you can use
-**W/A/S/D** as well, and hold **Shift** to drive twice as fast. In Gazebo,
-prefer the arrow keys: Gazebo uses S, R and T as its own tool shortcuts.
-
-### Reading the WiLoc window
-
-The **Overview** tab shows everything at once:
-
-* **Map (left).** The coloured background is a heat map of Wi-Fi signal
-  strength. The **white circle** is where the robot really is; the **blue
-  dot** with its shaded ellipse is where WiLoc thinks it is. The small
-  **orange dots** are the particle filter's guesses, and the **coloured
-  lines** run from the robot to each Wi-Fi access point, labelled with the
-  signal strength and the number of walls in between.
-* **Latest Wi-Fi scan.** For each access point, the measured signal next to
-  what the learned radio map predicts.
-* **Position error.** The localisation error over time. The blue line
-  (WiLoc) should stay well below the Wi-Fi-only and odometry-only lines.
-* **Filter internals.** How diverse and how spread out the particles are.
-
-The other tabs show the same information in more detail: the full RSSI
-breakdown table, larger plots, and a live graph of the ROS nodes and their
-message rates.
+> Leave the terminal open. Closing it stops the simulation.
 
 ---
 
-## 5. Useful options
+## Step 5: Drive the robot
 
-Anything after `run` is passed on to the launch file:
+1. **Click once** with the mouse anywhere inside the 3D view of the
+   **Gazebo** window (the picture of the office).
+2. Press and **hold** the arrow keys:
+
+| Key | What the robot does |
+|---|---|
+| **Up arrow** | drives forward |
+| **Down arrow** | drives backward |
+| **Left arrow** | turns left |
+| **Right arrow** | turns right |
+| **Up + Left together** | drives in a curve |
+| **Space** | stops |
+
+Let go of the key and the robot stops.
+
+You can also click on the **WiLoc** window and drive from there. In that
+window **W, A, S, D** work as well, and holding **Shift** makes the robot go
+twice as fast.
+
+### Fun extra keys (work in both windows)
+
+| Key | What happens |
+|---|---|
+| **K** | **Kidnap**: the robot is teleported to a random place. Watch how WiLoc finds it again. |
+| **G** | WiLoc "forgets" where the robot is and has to find it from scratch. |
+| **H** | Changes the coloured Wi-Fi map: strongest signal, then each Wi-Fi router in turn. |
+| **M** | The robot drives around the office by itself. Press **M** again to take back control. |
+
+---
+
+## Step 6: Understand what you see in the WiLoc window
+
+Look at the **Overview** tab, the first one at the top.
+
+**The big map on the left:**
+
+* The **coloured background** shows the Wi-Fi signal strength. Red or orange
+  means strong, light blue means weak.
+* The **coloured dots** with names (AP1, AP2, ...) are the **Wi-Fi routers**.
+* The **white circle** is where the robot **really** is.
+* The **blue dot** with the blue shaded area is where **WiLoc thinks** the
+  robot is. The shaded area shows how unsure it is.
+* The **small orange dots** are the guesses the algorithm is considering.
+* The **coloured lines** run from the robot to each router. Each label shows
+  the signal strength (for example `-47 dBm`) and how many walls the signal
+  passes through (`3w` means 3 walls).
+* The **lines on the floor** show the paths: black is the real path, blue is
+  what WiLoc estimated, and grey dashed is where the robot would think it is
+  using only its wheels.
+
+**The graphs on the right:**
+
+* **Latest Wi-Fi scan:** the signal from each router, measured versus
+  predicted.
+* **Position error:** how wrong each method is, in metres. The **blue line
+  (WiLoc) should be the lowest**.
+* **Filter internals:** technical details of the algorithm.
+
+**The status bar at the top** shows the current error, for example
+`error now 0.30 m`.
+
+The other tabs (**Wi-Fi details**, **Localization details**, **ROS graph**)
+show more detail if you are curious.
+
+---
+
+## Step 7: Stop the simulation
+
+Click on the **terminal** window and press **Ctrl + C**.
+
+If any windows stay open, paste this and press Enter:
 
 ```bash
-./wiloc.sh run drive:=true          # robot patrols the office on its own (press M to take over)
-./wiloc.sh run method:=ekf          # use the EKF instead of the particle filter
-./wiloc.sh run method:=wknn         # raw Wi-Fi fingerprinting, no filter
+./wiloc.sh stop
+```
+
+---
+
+## Running it again another day
+
+Open a terminal (**Ctrl + Alt + T**) and paste:
+
+```bash
+cd ~/WiLoc && ./wiloc.sh run
+```
+
+That's all. Steps 1 to 3 are **not** needed again.
+
+To get the newest version of the project first:
+
+```bash
+cd ~/WiLoc && git pull && ./wiloc.sh build && ./wiloc.sh run
+```
+
+---
+
+## Something went wrong?
+
+| What you see | What to do |
+|---|---|
+| `Permission denied` when running `./wiloc.sh` | Run `chmod +x wiloc.sh`, then try again. |
+| `ROS 2 Humble not found` | ROS 2 Humble is not installed. Ask the team. |
+| The Gazebo window is **black**, flickers, or closes right away (common in virtual machines) | Stop with **Ctrl + C**, then start with `./wiloc.sh run --software-gl` |
+| Everything is **very slow** | In your VM settings, give it more CPUs (4 or more) and memory (8 GB or more). You can also run without the 3D window and drive from the WiLoc window: `./wiloc.sh run gui:=false` |
+| `Spawn service failed`, or **no robot** appears | Run `./wiloc.sh stop`, wait 5 seconds, then `./wiloc.sh run` again. |
+| Pressing keys does **nothing** | **Click** inside the Gazebo 3D view, or on the WiLoc window, first. Keys only go to the window you clicked. |
+| Text in the windows is **too small or too big** | Bigger: `./wiloc.sh run ui_font_dpi:=144`. Normal: `./wiloc.sh run ui_font_dpi:=96` |
+| The robot moves **by itself** in a strange way | Someone else on the same network runs ROS. Run `export ROS_DOMAIN_ID=42`, then `./wiloc.sh run` in the same terminal. |
+| Errors after `git pull` | Run `rm -rf ~/wiloc_ws && ./wiloc.sh build`, then `./wiloc.sh run`. |
+
+Still stuck? Send the team a photo of the terminal showing the error.
+
+---
+
+## For the curious: more options
+
+```bash
+./wiloc.sh run drive:=true          # robot starts by driving around on its own
+./wiloc.sh run method:=ekf          # use a different algorithm (Kalman filter)
+./wiloc.sh run method:=wknn         # Wi-Fi only, no filter (to see how much worse it is)
 ./wiloc.sh run global_init:=true    # robot starts with no idea where it is
 ./wiloc.sh run rviz:=true           # also open RViz
-./wiloc.sh run ui_font_dpi:=120     # make the text in the windows bigger or smaller
+./wiloc.sh test                     # run the automatic tests (about 1 minute)
+./wiloc.sh experiments              # make all the result graphs (into the results folder)
+./wiloc.sh                          # list every command
 ```
-
-Other commands:
-
-```bash
-./wiloc.sh test          # run the unit tests (about 1 minute)
-./wiloc.sh experiments   # offline experiments, figures go to ./results (a few minutes)
-./wiloc.sh build         # rebuild after changing code
-./wiloc.sh               # show all commands
-```
-
----
-
-## 6. If something goes wrong
-
-| Problem | Fix |
-|---|---|
-| Gazebo window is black, flickers or crashes straight away (common in VMs) | `./wiloc.sh run --software-gl`. Also enable 3D acceleration in your VM settings if you can. |
-| Gazebo is very slow | Give the VM more CPU cores and memory. You can also skip the Gazebo window and drive from the WiLoc window: `./wiloc.sh run gui:=false` |
-| `Spawn service failed` or the robot never appears | Something from a previous run is still alive. Run `./wiloc.sh stop`, then `./wiloc.sh run` again. |
-| Keys do nothing | Click inside Gazebo's 3D view, or on the WiLoc window, first. Only the focused window receives keys. |
-| Text in the windows is tiny or huge | `./wiloc.sh run ui_font_dpi:=144` (bigger) or `ui_font_dpi:=96` (normal) |
-| The robot moves on its own or two simulations interfere | Someone else on the same network is running ROS. Pick your own number: `export ROS_DOMAIN_ID=42`, then run again. |
-| `ROS 2 Humble not found` | ROS is installed somewhere else, or it is a different version. WiLoc needs Humble in `/opt/ros/humble`. |
-| Build errors after pulling new code | `rm -rf ~/wiloc_ws`, then `./wiloc.sh build` |
