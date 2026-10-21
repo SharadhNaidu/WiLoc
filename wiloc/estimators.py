@@ -33,6 +33,22 @@ class Estimator:
         return self.predict_with_cov(z)[0]
 
     def predict_with_cov(self, z: np.ndarray):
+        """Positions (N, 2) and covariances (N, 2, 2) for scans z (N, A).
+
+        A scan in which no AP was heard carries no position information, so
+        it gets the centre of the surveyed area with a covariance spanning
+        the whole area instead of a falsely confident match.
+        """
+        z = np.atleast_2d(np.asarray(z, dtype=float))
+        xy, cov = self._predict_with_cov(z)
+        empty = np.isnan(z).all(axis=1)
+        if empty.any():
+            pos = self.rmap.positions
+            xy[empty] = pos.mean(axis=0)
+            cov[empty] = np.cov(pos.T)
+        return xy, cov
+
+    def _predict_with_cov(self, z: np.ndarray):
         raise NotImplementedError
 
 
@@ -60,7 +76,7 @@ class KNN(Estimator):
         diff = np.abs(z[:, None, :] - self.rmap.mean[None, :, :])  # (N, R, A)
         return np.sum(diff**self.p, axis=-1) ** (1.0 / self.p)
 
-    def predict_with_cov(self, z):
+    def _predict_with_cov(self, z):
         z = np.atleast_2d(z)
         dist = self.signal_distance(z)
         k = min(self.k, dist.shape[1])
@@ -95,7 +111,7 @@ class Probabilistic(Estimator):
         ll = np.where(heard, ll_heard + np.log(p_hit), np.log(p_miss))
         return self.temper * ll.sum(axis=-1)  # (N, R)
 
-    def predict_with_cov(self, z):
+    def _predict_with_cov(self, z):
         ll = self.log_likelihood(z)
         if self.k is not None and self.k < ll.shape[1]:
             idx = np.argpartition(-ll, self.k - 1, axis=1)[:, : self.k]
@@ -117,17 +133,21 @@ class Trilateration(Estimator):
         self.models = []
         for j in range(rmap.n_aps):
             ok = rmap.detect_rate[:, j] > 0.9
+            if ok.sum() < 3:
+                self.models.append(None)  # never reliably heard: no range model
+                continue
             self.models.append(fit_log_distance(rmap.positions[ok], rmap.mean[ok, j], rmap.ap_positions[j]))
+        self.usable = np.array([m is not None for m in self.models])
         lo, hi = rmap.positions.min(0), rmap.positions.max(0)
         self.bounds, self.x0 = (lo, hi), rmap.positions.mean(0)
         return self
 
-    def predict_with_cov(self, z):
+    def _predict_with_cov(self, z):
         z = np.atleast_2d(z)
         aps = self.rmap.ap_positions
         out, covs = np.empty((len(z), 2)), np.empty((len(z), 2, 2))
         for i, zi in enumerate(z):
-            ok = ~np.isnan(zi) & (zi > NOT_HEARD_DBM + 5)
+            ok = ~np.isnan(zi) & (zi > NOT_HEARD_DBM + 5) & self.usable
             if ok.sum() < 3:
                 out[i], covs[i] = self.x0, np.eye(2) * 25.0
                 continue

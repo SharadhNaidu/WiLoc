@@ -27,6 +27,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .environment import FloorPlan
+from .geometry import segments_intersect
 
 SPEED_OF_LIGHT = 299_792_458.0
 
@@ -148,6 +149,35 @@ class RadioSimulator:
             for j, ap in enumerate(self.fp.access_points):
                 rssi[:, j] += self.shadowing[ap.id](pts)
         return rssi
+
+    def breakdown(self, pt) -> list[dict]:
+        """Per-AP terms of the propagation model at one point (for display).
+
+        mean_rssi = tx_power - path_loss - wall_loss + shadowing
+        """
+        pt = np.asarray(pt, dtype=float)[None, :2]
+        hits = segments_intersect(np.repeat(pt, len(self.fp.access_points), 0), self.fp.ap_positions, self.fp.walls)
+        losses = self.fp.wall_losses
+        rows = []
+        for j, ap in enumerate(self.fp.access_points):
+            d = max(float(np.linalg.norm(pt[0] - ap.pos)), 0.1)
+            pl = self.cfg.pl_d0 + 10 * self.cfg.path_loss_exponent * np.log10(d / self.cfg.d0)
+            crossed = [self.fp.wall_materials[k] for k in np.flatnonzero(hits[j])]
+            wall = float(losses[hits[j]].sum())
+            shadow = float(self.shadowing[ap.id](pt)[0])
+            rows.append(
+                {
+                    "id": ap.id,
+                    "distance_m": d,
+                    "tx_power_dbm": ap.tx_power,
+                    "path_loss_db": float(pl),
+                    "walls": crossed,
+                    "wall_loss_db": wall,
+                    "shadowing_db": shadow,
+                    "mean_rssi_dbm": float(ap.tx_power - pl - wall + shadow),
+                }
+            )
+        return rows
 
     def measure(self, pts: np.ndarray, rng: np.random.Generator, n_samples: int = 1) -> np.ndarray:
         """Noisy scans. Returns (N, A) for n_samples == 1 else (N, n_samples, A).

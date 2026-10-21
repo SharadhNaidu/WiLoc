@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,7 +54,8 @@ class RadioMap:
             z = z[:, :1, :]
         heard = ~np.isnan(z)
         rate = heard.mean(axis=1)
-        with np.errstate(invalid="ignore"):
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             mean = np.nanmean(np.where(heard, z, np.nan), axis=1)
             std = np.nanstd(np.where(heard, z, np.nan), axis=1)
         mean = np.where(rate > 0, mean, NOT_HEARD_DBM)
@@ -195,7 +197,12 @@ class DenseRadioMap:
         means, stds = [], []
         for j in range(rmap.n_aps):
             y = rmap.mean[:, j]
-            a, n = fit_log_distance(rmap.positions, y, rmap.ap_positions[j])
+            # Fit the path-loss prior on reliably heard RPs only; the floor
+            # value substituted for missed readings would bias it.
+            ok = rmap.detect_rate[:, j] > 0.9
+            if ok.sum() < 3:
+                ok = np.ones(len(y), dtype=bool)
+            a, n = fit_log_distance(rmap.positions[ok], y[ok], rmap.ap_positions[j])
             prior = lambda p: a - 10 * n * np.log10(np.maximum(np.linalg.norm(p - rmap.ap_positions[j], axis=1), 0.5))
             if method == "model":
                 resid = y - prior(rmap.positions)

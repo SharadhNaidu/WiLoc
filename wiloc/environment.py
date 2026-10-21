@@ -36,6 +36,12 @@ class AccessPoint:
     tx_power: float = 20.0  # dBm (EIRP)
     channel: int = 1
 
+    def __post_init__(self):
+        # YAML may give integers (x: 5); ROS message fields need floats.
+        self.id = str(self.id)
+        self.x, self.y, self.tx_power = float(self.x), float(self.y), float(self.tx_power)
+        self.channel = int(self.channel)
+
     @property
     def pos(self) -> np.ndarray:
         return np.array([self.x, self.y])
@@ -76,7 +82,7 @@ class FloorPlan:
             wall_height=float(d.get("wall_height", 2.5)),
             wall_thickness=float(d.get("wall_thickness", 0.15)),
             waypoints=np.array(d.get("waypoints", []), dtype=float).reshape(-1, 2),
-            start_pose=tuple(d.get("start_pose", (1.0, 6.0, 0.0))),
+            start_pose=tuple(float(v) for v in d.get("start_pose", (1.0, 6.0, 0.0))),
         )
 
     @classmethod

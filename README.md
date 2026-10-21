@@ -101,7 +101,7 @@ Full-lap particle-filter run:
 
 ```bash
 pip install -e .                 # or: export PYTHONPATH=$PWD
-python -m pytest                 # 20 unit tests
+python -m pytest                 # 21 unit tests
 python -m wiloc all --out results          # all experiments + figures (a few minutes)
 python -m wiloc all --out results --quick  # faster, fewer samples
 ```
@@ -217,7 +217,7 @@ docs/                  theory, references, figures
   materials, APs and patrol waypoints. Pass `floorplan:=/path/to/file.yaml`.
   The Gazebo world is regenerated automatically.
 * **New estimator.** Subclass `wiloc.estimators.Estimator` and implement
-  `predict_with_cov`. Add it to `default_estimators()` to include it in the
+  `_predict_with_cov` (the base class handles scans where no AP is heard). Add it to `default_estimators()` to include it in the
   benchmarks.
 * **Real data.** `RadioMap` is a plain array container. Load UJIIndoorLoc or
   your own survey into `positions`, `mean`, `std` and `detect_rate`, and every

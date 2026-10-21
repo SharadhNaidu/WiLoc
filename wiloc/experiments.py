@@ -287,7 +287,9 @@ def exp_survey_scaling(world: World, out: Path) -> dict:
 
 def plot_eval_csv(csv_path: str | Path, fp: FloorPlan, out: str | Path) -> dict:
     """Figure + statistics for a Gazebo run logged by ``wiloc_ros``'s evaluator."""
-    a = np.genfromtxt(csv_path, delimiter=",", names=True)
+    a = np.atleast_1d(np.genfromtxt(csv_path, delimiter=",", names=True))
+    if a.size < 2:
+        raise SystemExit(f"{csv_path}: only {a.size} logged sample(s); let the simulation run longer")
     t = a["t"] - a["t"][0]
     truth = np.column_stack([a["true_x"], a["true_y"]])
     series = {

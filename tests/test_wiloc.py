@@ -204,3 +204,78 @@ def test_odom_delta_handles_reversing():
     assert trans == pytest.approx(-0.1) and abs(rot1) < 1e-9 and rot2 == pytest.approx(0.05)
     out = OdometryMotionModel(0, 0, 0, 0).sample(np.array([a]), (rot1, trans, rot2), np.random.default_rng(0))
     np.testing.assert_allclose(out[0], b, atol=1e-9)
+
+
+def test_estimators_report_no_information_for_empty_scan(world):
+    z = np.full((1, world.radio_map.n_aps), np.nan)
+    for est in (KNN(4, weighted=True), Probabilistic()):
+        xy, cov = est.fit(world.radio_map).predict_with_cov(z)
+        np.testing.assert_allclose(xy[0], world.radio_map.positions.mean(axis=0))
+        assert np.sqrt(np.trace(cov[0])) > 4.0  # spans the building, not ~1 m
+
+
+def test_breakdown_matches_mean_rssi(fp):
+    sim = RadioSimulator(fp)
+    pt = np.array([7.5, 2.5])
+    rows = sim.breakdown(pt)
+    np.testing.assert_allclose([r["mean_rssi_dbm"] for r in rows], sim.mean_rssi(pt[None])[0], atol=1e-9)
+    assert any(r["walls"] for r in rows)  # some AP is behind a wall from room F
+
+
+def test_integer_coordinates_in_yaml_are_floats():
+    d = {"width": 10, "height": 8, "walls": [{"seg": [0, 0, 10, 0]}], "access_points": [{"id": "A", "x": 5, "y": 4}], "start_pose": [1, 1, 0]}
+    fp = FloorPlan.from_dict(d)
+    ap = fp.access_points[0]
+    assert isinstance(ap.x, float) and isinstance(ap.tx_power, float)
+    assert all(isinstance(v, float) for v in fp.start_pose)
+
+
+def test_particle_filter_recovers_from_kidnapping(world):
+    """Mid-run kidnapping: a confident cloud moved far away must re-localise
+    through augmented-MCL injection, without false injections beforehand."""
+    rng = np.random.default_rng(21)
+    log = drive_patrol(world, rng)
+    pf = ParticleFilter(world.floorplan, world.dense_map, 1500, rng=np.random.default_rng(21))
+    pf.init_pose(world.floorplan.start_pose)
+    prev, scan_k, err = log.odom[0], dict(zip(log.scan_idx.tolist(), range(len(log.scan_idx)))), []
+    for k in range(len(log.t)):
+        pf.predict(odom_delta(prev, log.odom[k]))
+        prev = log.odom[k]
+        if k in scan_k:
+            if scan_k[k] == 200:
+                assert pf.n_injected == 0  # no false alarms while tracking
+                pf.particles[:, :2] = np.array([17.0, 9.5]) + 0.1 * rng.standard_normal((pf.n, 2))
+            pf.update(log.scans[scan_k[k]])
+            err.append(np.linalg.norm(pf.estimate()[0][:2] - log.truth[k, :2]))
+    err = np.array(err)
+    assert err[200] > 5.0 and pf.n_injected > 0
+    assert (err[200:260] < 1.0).any()  # recovered within 30 s
+    assert np.median(err[-200:]) < 1.0
+
+
+def test_particle_filter_recovers_from_kidnapping_while_parked(world):
+    """No motion after the kidnapping: recovery must come from the scans alone.
+
+    (Spots where two distant places have near-identical fingerprints -- e.g.
+    right at a wall corner -- can need motion to disambiguate; random spots
+    recover from scans alone, 12/12 in a sweep, median 7 scans.)
+    """
+    log = drive_patrol(world, np.random.default_rng(31))
+    for i, spot in enumerate(world.floorplan.sample_free(3, np.random.default_rng(5), clearance=0.4)):
+        rng = np.random.default_rng(100 + i)
+        pf = ParticleFilter(world.floorplan, world.dense_map, 1500, rng=np.random.default_rng(i))
+        pf.init_pose(world.floorplan.start_pose)
+        prev, scan_k = log.odom[0], dict(zip(log.scan_idx.tolist(), range(len(log.scan_idx))))
+        for k in range(len(log.t)):  # normal tracking first, so w_slow knows "good"
+            pf.predict(odom_delta(prev, log.odom[k]))
+            prev = log.odom[k]
+            if k in scan_k:
+                pf.update(log.scans[scan_k[k]])
+            if scan_k.get(k) == 150:
+                break
+        assert np.linalg.norm(pf.estimate()[0][:2] - spot) > 5.0  # kidnapped far away
+        err = []
+        for _ in range(60):  # 30 s of scans at 2 Hz, robot standing still
+            pf.update(world.radio.measure(spot[None], rng)[0])
+            err.append(np.linalg.norm(pf.estimate()[0][:2] - spot))
+        assert min(err) < 1.5 and err[-1] < 2.0

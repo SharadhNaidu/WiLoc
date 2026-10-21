@@ -41,9 +41,11 @@ class ParticleFilter:
         alpha_fast: float = 0.3,
         wall_penalty: float = 1e-3,
         max_inject: float = 0.05,
+        inject_threshold: float = 0.3,
         rng: np.random.Generator | None = None,
     ):
-        self.max_inject = max_inject
+        self.max_inject, self.inject_threshold = max_inject, inject_threshold
+        self.n_resamples = self.n_injected = 0  # bookkeeping for monitoring
         self.fp, self.map = floorplan, radio_map
         self.n = n_particles
         self.motion = motion_model or OdometryMotionModel()
@@ -109,16 +111,24 @@ class ParticleFilter:
     def update(self, z):
         z = np.asarray(z, dtype=float)
         ll = self.measurement_loglik(z, self.particles[:, :2])
-        # Augmented MCL bookkeeping on a per-AP-normalised likelihood scale.
-        w_avg = float(np.exp(np.logaddexp.reduce(self.logw + ll / max(len(z), 1))))
+        # Augmented-MCL bookkeeping on the (tempered) total likelihood: per-AP
+        # averaging flattens the drop after a kidnapping too much to detect it.
+        w_avg = float(np.exp(np.logaddexp.reduce(self.logw + ll)))
         if self.w_slow is None:
             self.w_slow = self.w_fast = w_avg
         self.w_slow += self.a_slow * (w_avg - self.w_slow)
         self.w_fast += self.a_fast * (w_avg - self.w_fast)
         self.logw += ll
         self._normalise()
-        if self.ess() < self.n / 2:
+        # Resample when the weights degenerate, and also whenever the filter
+        # looks lost: after a kidnapping all particles are *equally* wrong, so
+        # the weights stay even and injection would otherwise never happen.
+        if self.ess() < self.n / 2 or self.lost():
             self.resample()
+
+    def lost(self) -> bool:
+        """Augmented-MCL alarm: short-term likelihood well below the long-term one."""
+        return bool(self.w_slow) and self.w_fast / self.w_slow < self.inject_threshold
 
     def resample(self):
         """Low-variance (systematic) resampling plus random injection."""
@@ -126,8 +136,14 @@ class ParticleFilter:
         positions = (self.rng.random() + np.arange(self.n)) / self.n
         idx = np.minimum(np.searchsorted(np.cumsum(w), positions), self.n - 1)
         self.particles = self.particles[idx]
-        p_inject = max(0.0, 1.0 - self.w_fast / self.w_slow) if self.w_slow else 0.0
+        # Inject only when the short-term likelihood has clearly fallen below the
+        # long-term one (robot lost or kidnapped); ordinary scan-to-scan
+        # fluctuations would otherwise keep sprinkling random particles.
+        ratio = self.w_fast / self.w_slow if self.w_slow else 1.0
+        p_inject = max(0.0, 1.0 - ratio / self.inject_threshold)
         k = int(self.rng.binomial(self.n, min(p_inject, self.max_inject)))
+        self.n_resamples += 1
+        self.n_injected += k
         if k > 0:
             self.particles[self.rng.choice(self.n, k, replace=False)] = self._random_particles(k)
         self.logw[:] = -np.log(self.n)
