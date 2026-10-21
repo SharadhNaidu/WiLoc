@@ -9,8 +9,9 @@ mkdir -p "$WS/src"
 ln -sfn "$REPO"                         "$WS/src/wiloc"
 ln -sfn "$REPO/ros2_ws/src/wiloc_msgs"  "$WS/src/wiloc_msgs"
 ln -sfn "$REPO/ros2_ws/src/wiloc_ros"   "$WS/src/wiloc_ros"
+ln -sfn "$REPO/ros2_ws/src/wiloc_gazebo" "$WS/src/wiloc_gazebo"
 source /opt/ros/humble/setup.bash
 cd "$WS"
-colcon build --symlink-install --base-paths src/wiloc src/wiloc_msgs src/wiloc_ros "$@"
+colcon build --symlink-install --base-paths src/wiloc src/wiloc_msgs src/wiloc_ros src/wiloc_gazebo "$@"
 echo
 echo "Built. Now run:  source $WS/install/setup.bash && ros2 launch wiloc_ros sim.launch.py"
