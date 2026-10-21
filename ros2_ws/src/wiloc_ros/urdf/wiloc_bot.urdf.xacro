@@ -1,48 +1,79 @@
 <?xml version="1.0"?>
-<!-- WiLoc differential-drive robot (TurtleBot3-Burger-like footprint) with a
-     Wi-Fi antenna mast.  Gazebo plugins: diff drive with ENCODER odometry
-     (drifts like real wheel odometry), joint states, and a p3d ground-truth
-     pose used only for evaluation and by the simulated Wi-Fi card. -->
+<!-- WiLoc robot: a humanoid on a differential-drive base (Pepper-like).
+
+     Kinematically it is a plain differential-drive robot: two driven wheels
+     and two passive casters.  The humanoid upper body (torso, arms, head) is
+     visual only and rigidly fixed to the base; almost all mass sits low in the
+     base so it cannot tip.  The eyes and chest panel face forward (+x), the
+     Wi-Fi antenna (where RSSI is "measured") sits on the head.
+
+     Gazebo plugins: diff drive with ENCODER odometry (drifts like real wheel
+     odometry), joint states, and a p3d ground-truth pose used only for
+     evaluation and by the simulated Wi-Fi card. -->
 <robot name="wiloc_bot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:property name="wheel_radius" value="0.033"/>
-  <xacro:property name="wheel_width" value="0.018"/>
-  <xacro:property name="wheel_sep" value="0.160"/>
-  <xacro:property name="base_x" value="0.14"/>
-  <xacro:property name="base_y" value="0.14"/>
-  <xacro:property name="base_z" value="0.09"/>
+  <xacro:property name="wheel_radius" value="0.075"/>
+  <xacro:property name="wheel_width" value="0.04"/>
+  <xacro:property name="wheel_sep" value="0.42"/>
+  <xacro:property name="base_r" value="0.22"/>
+  <xacro:property name="base_h" value="0.16"/>
+  <xacro:property name="base_z" value="0.13"/>
+  <xacro:property name="caster_r" value="0.04"/>
 
-  <material name="dark"><color rgba="0.15 0.15 0.18 1"/></material>
-  <material name="blue"><color rgba="0.1 0.35 0.8 1"/></material>
-  <material name="red"><color rgba="0.85 0.1 0.1 1"/></material>
+  <material name="white"><color rgba="0.95 0.95 0.96 1"/></material>
+  <material name="dark"><color rgba="0.22 0.24 0.28 1"/></material>
+  <material name="teal"><color rgba="0.09 0.64 0.60 1"/></material>
+  <material name="orange"><color rgba="0.89 0.34 0.18 1"/></material>
+  <material name="blue"><color rgba="0.18 0.50 0.93 1"/></material>
+  <material name="green"><color rgba="0.35 0.66 0.20 1"/></material>
 
-  <xacro:macro name="box_inertia" params="m x y z">
-    <inertia ixx="${m*(y*y+z*z)/12}" ixy="0" ixz="0" iyy="${m*(x*x+z*z)/12}" iyz="0" izz="${m*(x*x+y*y)/12}"/>
+  <!-- A rigid, visual-only body part with its own colour in RViz and Gazebo. -->
+  <xacro:macro name="part" params="name parent *geometry xyz rpy:='0 0 0' material gz">
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="${rpy}"/>
+        <xacro:insert_block name="geometry"/>
+        <material name="${material}"/>
+      </visual>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}"/>
+      <origin xyz="${xyz}"/>
+    </joint>
+    <gazebo reference="${name}"><material>${gz}</material></gazebo>
   </xacro:macro>
 
   <link name="base_footprint"/>
 
+  <!-- Mobile base -->
   <link name="base_link">
     <visual>
-      <origin xyz="0 0 ${base_z/2}"/>
-      <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
-      <material name="blue"/>
+      <origin xyz="0 0 ${base_z}"/>
+      <geometry><cylinder radius="${base_r}" length="${base_h}"/></geometry>
+      <material name="dark"/>
     </visual>
     <collision>
-      <origin xyz="0 0 ${base_z/2}"/>
-      <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
+      <origin xyz="0 0 ${base_z}"/>
+      <geometry><cylinder radius="${base_r}" length="${base_h}"/></geometry>
+    </collision>
+    <!-- torso as a simple collision box so the robot cannot pass through walls -->
+    <collision>
+      <origin xyz="0 0 0.55"/>
+      <geometry><box size="0.26 0.36 0.6"/></geometry>
     </collision>
     <inertial>
-      <origin xyz="0 0 ${base_z/2}"/>
-      <mass value="1.0"/>
-      <xacro:box_inertia m="1.0" x="${base_x}" y="${base_y}" z="${base_z}"/>
+      <origin xyz="0 0 0.12"/>
+      <mass value="15.0"/>
+      <inertia ixx="0.26" ixy="0" ixz="0" iyy="0.26" iyz="0" izz="0.36"/>
     </inertial>
   </link>
   <joint name="base_joint" type="fixed">
     <parent link="base_footprint"/>
     <child link="base_link"/>
-    <origin xyz="0 0 0.010"/>
+    <origin xyz="0 0 0"/>
   </joint>
+  <gazebo reference="base_link"><material>Gazebo/DarkGrey</material></gazebo>
 
   <xacro:macro name="wheel" params="side y">
     <link name="wheel_${side}_link">
@@ -56,19 +87,19 @@
         <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
       </collision>
       <inertial>
-        <mass value="0.05"/>
-        <inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="3e-5"/>
+        <mass value="0.6"/>
+        <inertia ixx="9e-4" ixy="0" ixz="0" iyy="1.7e-3" iyz="0" izz="9e-4"/>
       </inertial>
     </link>
     <joint name="wheel_${side}_joint" type="continuous">
       <parent link="base_link"/>
       <child link="wheel_${side}_link"/>
-      <origin xyz="0 ${y} ${wheel_radius - 0.010}"/>
+      <origin xyz="0 ${y} ${wheel_radius}"/>
       <axis xyz="0 1 0"/>
     </joint>
     <gazebo reference="wheel_${side}_link">
       <mu1>1.0</mu1><mu2>1.0</mu2><kp>500000</kp><kd>10</kd><minDepth>0.001</minDepth>
-      <material>Gazebo/DarkGrey</material>
+      <material>Gazebo/Black</material>
     </gazebo>
   </xacro:macro>
   <xacro:wheel side="left" y="${wheel_sep/2}"/>
@@ -76,38 +107,82 @@
 
   <xacro:macro name="caster" params="name x">
     <link name="${name}_link">
-      <visual><geometry><sphere radius="0.012"/></geometry><material name="dark"/></visual>
-      <collision><geometry><sphere radius="0.012"/></geometry></collision>
-      <inertial><mass value="0.01"/><inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/></inertial>
+      <visual><geometry><sphere radius="${caster_r}"/></geometry><material name="dark"/></visual>
+      <collision><geometry><sphere radius="${caster_r}"/></geometry></collision>
+      <inertial><mass value="0.1"/><inertia ixx="6e-5" ixy="0" ixz="0" iyy="6e-5" iyz="0" izz="6e-5"/></inertial>
     </link>
     <joint name="${name}_joint" type="fixed">
       <parent link="base_link"/>
       <child link="${name}_link"/>
-      <origin xyz="${x} 0 0.002"/>
+      <origin xyz="${x} 0 ${caster_r}"/>
     </joint>
-    <gazebo reference="${name}_link">
-      <mu1>0.0</mu1><mu2>0.0</mu2>
-    </gazebo>
+    <gazebo reference="${name}_link"><mu1>0.0</mu1><mu2>0.0</mu2><material>Gazebo/DarkGrey</material></gazebo>
   </xacro:macro>
-  <xacro:caster name="caster_front" x="0.055"/>
-  <xacro:caster name="caster_back" x="-0.055"/>
+  <xacro:caster name="caster_front" x="0.15"/>
+  <xacro:caster name="caster_back" x="-0.15"/>
 
-  <!-- Wi-Fi antenna mast (where RSSI is "measured") -->
+  <!-- Humanoid upper body (visual only) -->
+  <xacro:part name="waist" parent="base_link" xyz="0 0 0.34" material="white" gz="Gazebo/White">
+    <geometry><cylinder radius="0.11" length="0.26"/></geometry>
+  </xacro:part>
+  <xacro:part name="chest" parent="base_link" xyz="0 0 0.6" material="white" gz="Gazebo/White">
+    <geometry><box size="0.24 0.34 0.3"/></geometry>
+  </xacro:part>
+  <xacro:part name="chest_panel" parent="base_link" xyz="0.122 0 0.62" material="teal" gz="Gazebo/Turquoise">
+    <geometry><box size="0.01 0.2 0.14"/></geometry>
+  </xacro:part>
+  <xacro:part name="neck" parent="base_link" xyz="0 0 0.785" material="dark" gz="Gazebo/DarkGrey">
+    <geometry><cylinder radius="0.04" length="0.07"/></geometry>
+  </xacro:part>
+  <xacro:part name="head" parent="base_link" xyz="0 0 0.93" material="white" gz="Gazebo/White">
+    <geometry><sphere radius="0.13"/></geometry>
+  </xacro:part>
+  <xacro:part name="eye_left" parent="base_link" xyz="0.112 0.045 0.95" material="blue" gz="Gazebo/BlueGlow">
+    <geometry><sphere radius="0.026"/></geometry>
+  </xacro:part>
+  <xacro:part name="eye_right" parent="base_link" xyz="0.112 -0.045 0.95" material="blue" gz="Gazebo/BlueGlow">
+    <geometry><sphere radius="0.026"/></geometry>
+  </xacro:part>
+
+  <xacro:macro name="arm" params="side s">
+    <xacro:part name="shoulder_${side}" parent="base_link" xyz="0 ${s*0.215} 0.7" material="orange" gz="Gazebo/Orange">
+      <geometry><sphere radius="0.055"/></geometry>
+    </xacro:part>
+    <xacro:part name="upper_arm_${side}" parent="base_link" xyz="0 ${s*0.225} 0.57" material="white" gz="Gazebo/White">
+      <geometry><cylinder radius="0.04" length="0.22"/></geometry>
+    </xacro:part>
+    <xacro:part name="elbow_${side}" parent="base_link" xyz="0 ${s*0.225} 0.45" material="orange" gz="Gazebo/Orange">
+      <geometry><sphere radius="0.045"/></geometry>
+    </xacro:part>
+    <xacro:part name="forearm_${side}" parent="base_link" xyz="0.1 ${s*0.225} 0.45" rpy="0 ${pi/2} 0" material="white" gz="Gazebo/White">
+      <geometry><cylinder radius="0.035" length="0.2"/></geometry>
+    </xacro:part>
+    <xacro:part name="hand_${side}" parent="base_link" xyz="0.215 ${s*0.225} 0.45" material="dark" gz="Gazebo/DarkGrey">
+      <geometry><sphere radius="0.045"/></geometry>
+    </xacro:part>
+  </xacro:macro>
+  <xacro:arm side="left" s="1"/>
+  <xacro:arm side="right" s="-1"/>
+
+  <!-- Wi-Fi antenna on the head (where RSSI is "measured") -->
   <link name="wifi_antenna">
     <visual>
       <origin xyz="0 0 0.06"/>
-      <geometry><cylinder radius="0.006" length="0.12"/></geometry>
-      <material name="red"/>
+      <geometry><cylinder radius="0.008" length="0.12"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.14"/>
+      <geometry><sphere radius="0.035"/></geometry>
+      <material name="green"/>
     </visual>
   </link>
   <joint name="wifi_joint" type="fixed">
     <parent link="base_link"/>
     <child link="wifi_antenna"/>
-    <origin xyz="-0.04 0 ${base_z}"/>
+    <origin xyz="0 0 1.05"/>
   </joint>
-
-  <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
-  <gazebo reference="wifi_antenna"><material>Gazebo/Red</material></gazebo>
+  <gazebo reference="wifi_antenna"><material>Gazebo/GreenGlow</material></gazebo>
 
   <gazebo>
     <plugin name="wiloc_diff_drive" filename="libgazebo_ros_diff_drive.so">
@@ -116,7 +191,7 @@
       <right_joint>wheel_right_joint</right_joint>
       <wheel_separation>${wheel_sep}</wheel_separation>
       <wheel_diameter>${2*wheel_radius}</wheel_diameter>
-      <max_wheel_torque>2.0</max_wheel_torque>
+      <max_wheel_torque>20.0</max_wheel_torque>
       <max_wheel_acceleration>2.0</max_wheel_acceleration>
       <command_topic>cmd_vel</command_topic>
       <publish_odom>true</publish_odom>
