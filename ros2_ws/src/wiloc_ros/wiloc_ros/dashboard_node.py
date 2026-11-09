@@ -46,6 +46,7 @@ from std_msgs.msg import Int32, String
 from std_srvs.srv import Empty
 from tf2_msgs.msg import TFMessage
 
+from wiloc.planning import OccupancyGrid, kidnap_target
 from wiloc.radio import RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
@@ -159,6 +160,7 @@ class DashboardNode(Node):
         self.declare_parameter("mode", "auto")
         self.fp = load_floorplan(self.get_parameter("floorplan").value)
         self.radio_cfg = radio_config(self, self.fp)
+        self.grid = OccupancyGrid.from_floorplan(self.fp)
         self.v_max = float(self.get_parameter("v_max").value)
         self.w_max = float(self.get_parameter("w_max").value)
         self.start = np.array(self.fp.start_pose, dtype=float)
@@ -346,13 +348,10 @@ class DashboardNode(Node):
             self.note("teleport service /gazebo/set_entity_state not available")
             return
         rng = np.random.default_rng()
-        # Far enough to be a real kidnapping (a 1 m hop is a non-event), and
-        # with room around it so the robot is not dropped against furniture.
-        cand = self.fp.sample_free(200, rng, clearance=0.6)
-        if self.truth is not None:
-            far = cand[np.hypot(*(cand - self.truth[:2]).T) >= 6.0]
-            cand = far if len(far) else cand
-        x, y = cand[0]
+        # Far enough to be a real kidnapping (a 1 m hop is a non-event): one of
+        # the venue's curated spots, never on furniture.
+        here = self.truth[:2] if self.truth is not None else np.asarray(self.fp.start_pose[:2])
+        x, y = kidnap_target(self.fp, self.grid, here, rng)
         yaw = float(rng.uniform(-math.pi, math.pi))
         req = SetEntityState.Request()
         req.state = EntityState()

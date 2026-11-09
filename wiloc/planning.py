@@ -240,3 +240,44 @@ class PathFollower:
                 continue
             return v, w, False
         return 0.0, 0.0, True
+
+
+def validate_floorplan(fp: FloorPlan, grid: OccupancyGrid | None = None) -> list[str]:
+    """Problems that would break a live run: things placed in walls or furniture, unreachable places.
+
+    Checks the start pose, every patrol waypoint and kidnap spot against the
+    inflated grid, that every kidnap spot can reach the patrol, and that every
+    access point and room lies inside the building.
+    """
+    grid = grid or OccupancyGrid.from_floorplan(fp)
+    problems = []
+    start = np.asarray(fp.start_pose[:2], dtype=float)
+    named = [("start pose", start)]
+    named += [(f"waypoint {i + 1} {tuple(p)}", np.asarray(p)) for i, p in enumerate(fp.waypoints)]
+    named += [(f"kidnap spot {tuple(p)}", np.asarray(p)) for p in fp.kidnap_spots]
+    for name, p in named:
+        if not grid.is_free(p[None])[0]:
+            problems.append(f"{name} is not free (clearance {grid.clearance_at(p[None])[0]:.2f} m < {grid.inflate} m)")
+    if not problems:
+        for name, p in named[1:]:
+            if grid.plan(start, p) is None:
+                problems.append(f"{name} cannot be reached from the start pose")
+    for ap in fp.access_points:
+        if not (0 <= ap.x <= fp.width and 0 <= ap.y <= fp.height):
+            problems.append(f"access point {ap.id} is outside the building")
+    for name, (x0, y0, x1, y1) in fp.rooms:
+        if x0 < 0 or y0 < 0 or x1 > fp.width or y1 > fp.height or x1 <= x0 or y1 <= y0:
+            problems.append(f"room {name!r} has a bad rectangle")
+    return problems
+
+
+def kidnap_target(fp: FloorPlan, grid: OccupancyGrid, current_xy, rng: np.random.Generator, min_dist: float = 6.0):
+    """Where to drop a kidnapped robot: a curated spot far away, else open free space far away."""
+    current_xy = np.asarray(current_xy, dtype=float)[:2]
+    spots = np.asarray(fp.kidnap_spots, dtype=float).reshape(-1, 2)
+    if not len(spots):
+        cells = np.column_stack(np.nonzero(grid.free & (grid.clearance >= 0.6)))
+        spots = np.column_stack([(cells[:, 1] + 0.5) * grid.res, (cells[:, 0] + 0.5) * grid.res])
+    far = spots[np.hypot(*(spots - current_xy).T) >= min_dist]
+    pool = far if len(far) else spots
+    return pool[rng.integers(len(pool))]

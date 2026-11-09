@@ -3,6 +3,12 @@
 A floor plan is described once in YAML and shared by every part of the
 framework: the radio simulator, the fingerprint survey, the particle filter's
 map constraint, and the Gazebo world generator in ``wiloc_ros``.
+
+Besides walls and access points a plan can describe what makes it look like a
+real place: named ``rooms`` (for captions), ``furniture`` (typed boxes that the
+robot must drive around: ``obstacles``, used by the planner) and curated
+``kidnap_spots``.  Furniture is deliberately invisible to the radio model and
+to the particle filter: the radio world and every result stay comparable.
 """
 
 from __future__ import annotations
@@ -25,7 +31,50 @@ DEFAULT_MATERIALS = {
     "drywall": 3.5,
     "glass": 2.0,
     "wood": 3.0,
+    "metal": 15.0,  # steel racks, machinery, lift shafts
 }
+
+# Furniture: default height (m) and footprint (m, for items placed with ``at:``).
+FURNITURE = {
+    "desk": (0.75, (1.6, 0.7)),
+    "table": (0.75, (1.2, 0.8)),
+    "meeting_table": (0.75, (1.8, 1.0)),
+    "coffee_table": (0.42, (1.1, 0.55)),
+    "chair": (0.9, (0.48, 0.48)),
+    "sofa": (0.85, (2.2, 0.85)),
+    "bookshelf": (1.8, (1.6, 0.35)),
+    "cabinet": (1.1, (0.8, 0.45)),
+    "counter": (0.92, (2.0, 0.65)),
+    "fridge": (1.8, (0.7, 0.7)),
+    "plant": (1.1, (0.5, 0.5)),
+    "bed": (0.55, (2.0, 1.0)),
+    "rack": (3.0, (6.0, 1.0)),
+    "machine": (1.8, (2.0, 1.5)),
+    "conveyor": (0.9, (6.0, 0.8)),
+    "box": (1.0, (1.0, 1.0)),
+}
+
+
+@dataclass
+class Furniture:
+    type: str
+    rect: tuple[float, float, float, float]  # x0, y0, x1, y1
+    height: float
+    back: str = "n"  # side of a backrest (chairs, sofas, beds' headboard): n | s | e | w
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Furniture":
+        kind = str(d["type"])
+        height, (w, depth) = FURNITURE.get(kind, (1.0, (1.0, 1.0)))
+        if "rect" in d:
+            x0, y0, x1, y1 = (float(v) for v in d["rect"])
+        else:
+            w, depth = (float(v) for v in d.get("size", (w, depth)))
+            if d.get("rotate"):  # footprint turned by 90 degrees
+                w, depth = depth, w
+            x, y = (float(v) for v in d["at"])
+            x0, y0, x1, y1 = x - w / 2, y - depth / 2, x + w / 2, y + depth / 2
+        return cls(kind, (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)), float(d.get("height", height)), str(d.get("back", "n")))
 
 
 @dataclass
@@ -61,6 +110,9 @@ class FloorPlan:
     waypoints: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     start_pose: tuple[float, float, float] = (1.0, 6.0, 0.0)
     radio: dict = field(default_factory=dict)  # RadioConfig settings for this venue (``radio:``)
+    furniture: list[Furniture] = field(default_factory=list)
+    rooms: list[tuple[str, tuple[float, float, float, float]]] = field(default_factory=list)
+    kidnap_spots: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
 
     # ------------------------------------------------------------------ io
     @classmethod
@@ -85,6 +137,9 @@ class FloorPlan:
             waypoints=np.array(d.get("waypoints", []), dtype=float).reshape(-1, 2),
             start_pose=tuple(float(v) for v in d.get("start_pose", (1.0, 6.0, 0.0))),
             radio=dict(d.get("radio") or {}),
+            furniture=[Furniture.from_dict(f) for f in d.get("furniture") or []],
+            rooms=[(str(r["name"]), tuple(float(v) for v in r["rect"])) for r in d.get("rooms") or []],
+            kidnap_spots=np.array(d.get("kidnap_spots") or [], dtype=float).reshape(-1, 2),
         )
 
     @classmethod
@@ -105,6 +160,19 @@ class FloorPlan:
         return sorted(p.name[: -len(".yaml")] for p in (resources.files("wiloc") / "data").iterdir() if p.name.endswith(".yaml"))
 
     # ------------------------------------------------------------ queries
+    @property
+    def obstacles(self) -> np.ndarray:
+        """Furniture footprints (K, 4) [x0, y0, x1, y1]: for path planning, not for radio."""
+        return np.array([f.rect for f in self.furniture], dtype=float).reshape(-1, 4)
+
+    def room_at(self, xy) -> str | None:
+        """Name of the room containing point ``xy`` (first match), or None."""
+        x, y = float(xy[0]), float(xy[1])
+        for name, (x0, y0, x1, y1) in self.rooms:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return name
+        return None
+
     @property
     def ap_positions(self) -> np.ndarray:
         return np.array([ap.pos for ap in self.access_points])

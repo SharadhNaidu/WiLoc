@@ -92,3 +92,76 @@ waypoints:
   - [19.0, 6.0]
   - [10.0, 6.0]
   - [1.5, 6.0]
+
+# Named rooms (captions: "Not sure: Meeting room (55 %) or Corridor (35 %)").
+rooms:
+  - {name: Office A, rect: [0, 7, 5, 12]}
+  - {name: Office B, rect: [5, 7, 10, 12]}
+  - {name: Meeting room, rect: [10, 7, 15, 12]}
+  - {name: Lounge, rect: [15, 7, 20, 12]}
+  - {name: Office E, rect: [0, 0, 5, 5]}
+  - {name: Print room, rect: [5, 0, 10, 5]}
+  - {name: Office G, rect: [10, 0, 15, 5]}
+  - {name: Kitchen, rect: [15, 0, 20, 5]}
+  - {name: Corridor, rect: [0, 5, 20, 7]}
+
+# Furniture: the robot drives around it (path planning); radio and the
+# particle filter ignore it.  rect: [x0, y0, x1, y1], or at: [x, y] with the
+# type's default footprint (rotate: true turns it by 90 degrees).
+furniture:
+  # Office A
+  - {type: desk, rect: [0.15, 8.2, 0.85, 9.8]}
+  - {type: chair, at: [1.2, 9.0], back: e}
+  - {type: bookshelf, rect: [3.0, 11.5, 4.6, 11.85]}
+  - {type: plant, at: [0.45, 11.5]}
+  # Office B
+  - {type: desk, rect: [5.2, 11.1, 6.8, 11.8]}
+  - {type: chair, at: [6.0, 10.7], back: s}
+  - {type: desk, rect: [7.3, 11.1, 8.9, 11.8]}
+  - {type: chair, at: [8.1, 10.7], back: s}
+  - {type: cabinet, at: [9.5, 7.6], rotate: true}
+  # Meeting room (glass wall)
+  - {type: meeting_table, rect: [13.1, 8.4, 14.6, 9.4]}
+  - {type: chair, at: [13.5, 8.1], back: s}
+  - {type: chair, at: [14.2, 8.1], back: s}
+  - {type: chair, at: [13.5, 9.7], back: n}
+  - {type: chair, at: [14.2, 9.7], back: n}
+  - {type: plant, at: [10.5, 11.5]}
+  # Lounge
+  - {type: sofa, rect: [16.0, 11.1, 18.2, 11.85], back: n}
+  - {type: coffee_table, at: [17.1, 10.3]}
+  - {type: chair, at: [15.6, 10.3], back: w}
+  - {type: plant, at: [19.5, 11.5]}
+  # Office E
+  - {type: desk, rect: [0.6, 0.15, 2.2, 0.85]}
+  - {type: chair, at: [1.4, 1.2], back: n}
+  - {type: desk, rect: [2.8, 0.15, 4.4, 0.85]}
+  - {type: chair, at: [3.6, 1.2], back: n}
+  - {type: bookshelf, rect: [0.15, 2.6, 0.5, 4.2]}
+  # Print room
+  - {type: bookshelf, rect: [5.15, 0.6, 5.5, 3.6]}
+  - {type: cabinet, rect: [9.4, 3.4, 9.85, 4.6]}
+  - {type: table, rect: [5.8, 4.0, 7.0, 4.6]}
+  # Office G
+  - {type: desk, rect: [13.2, 0.15, 14.8, 0.85]}
+  - {type: chair, at: [14.0, 1.2], back: n}
+  - {type: bookshelf, rect: [10.15, 1.0, 10.5, 2.6]}
+  - {type: plant, at: [14.5, 4.4]}
+  # Kitchen
+  - {type: counter, rect: [19.2, 0.3, 19.85, 2.8]}
+  - {type: fridge, rect: [19.2, 3.0, 19.85, 3.7]}
+  - {type: table, rect: [15.6, 0.5, 16.6, 1.5]}
+  # Corridor
+  - {type: plant, at: [0.4, 5.4]}
+  - {type: plant, at: [19.6, 6.6]}
+
+# Where "Kidnap" drops the robot: one spot per room, clear of furniture.
+kidnap_spots:
+  - [1.5, 3.5]
+  - [8.5, 1.5]
+  - [12.0, 3.0]
+  - [18.5, 1.2]
+  - [1.2, 10.8]
+  - [7.0, 9.0]
+  - [13.5, 10.8]
+  - [18.0, 9.0]
