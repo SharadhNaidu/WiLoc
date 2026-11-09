@@ -435,7 +435,7 @@ class RaceChart(QtWidgets.QWidget):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         now = time.monotonic()
-        lm, rm, tm, bm = S.px(34), S.px(96), S.px(6), S.px(22)
+        lm, rm, tm, bm = S.px(44), S.px(96), S.px(6), S.px(22)
         plot = QtCore.QRectF(lm, tm, self.width() - lm - rm, self.height() - tm - bm)
         vals = [e for d in self.series.values() for t, e in d if now - t <= self.window]
         top = max(2.0, min(6.0, float(np.percentile(vals, 95)) * 1.1 if vals else 2.0))
