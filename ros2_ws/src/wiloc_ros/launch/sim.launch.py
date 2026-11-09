@@ -198,6 +198,12 @@ def _setup(context):
         ),
         Node(
             package="wiloc_ros",
+            executable="camera_rig",
+            parameters=[common],
+            **respawn,
+        ),
+        Node(
+            package="wiloc_ros",
             executable="odom_noise",
             parameters=[{**sim_time, "rot_bias": float(lc("odom_rot_bias")), "trans_bias": float(lc("odom_trans_bias"))}],
             **respawn,

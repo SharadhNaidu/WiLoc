@@ -15,6 +15,8 @@ setup(
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "urdf"), glob("urdf/*.xacro")),
         (os.path.join("share", package_name, "rviz"), glob("rviz/*.rviz")),
+        # Inter (SIL Open Font License 1.1) for the Studio window
+        (os.path.join("share", package_name, "fonts"), glob("fonts/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -31,6 +33,8 @@ setup(
             "evaluator = wiloc_ros.evaluator_node:main",
             "world_gen = wiloc_ros.world_gen:main",
             "dashboard = wiloc_ros.dashboard_node:main",
+            "studio = wiloc_ros.ui.app:main",
+            "camera_rig = wiloc_ros.camera_rig:main",
         ],
     },
 )

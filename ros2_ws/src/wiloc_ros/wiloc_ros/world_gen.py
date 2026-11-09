@@ -400,6 +400,7 @@ def _mover_actor(m: Mover) -> str:
 
 # ------------------------------------------------------------------- camera
 CAMERA_SIZE = (960, 540)  # 3-D view in the Studio window (P0: ~25 fps into Qt)
+CAMERA_HFOV = 1.15  # rad
 
 
 def overview_pose(fp: FloorPlan) -> tuple[float, float, float, float, float]:
@@ -424,7 +425,7 @@ def _camera_model(fp: FloorPlan, rate: float = 30.0) -> str:
         <sensor name="camera" type="camera">
           <update_rate>{rate:.0f}</update_rate>
           <camera>
-            <horizontal_fov>1.15</horizontal_fov>
+            <horizontal_fov>{CAMERA_HFOV}</horizontal_fov>
             <image><width>{w}</width><height>{h}</height><format>R8G8B8</format></image>
             <clip><near>0.05</near><far>150</far></clip>
           </camera>
