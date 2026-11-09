@@ -114,7 +114,10 @@
     <joint name="${name}_joint" type="fixed">
       <parent link="base_link"/>
       <child link="${name}_link"/>
-      <origin xyz="${x} 0 ${caster_r}"/>
+      <!-- 5 mm above the ground: the drive wheels always carry the load.  With
+           the casters touching too, a teleport (kidnapping) could leave the
+           robot resting on the frictionless casters with no wheel traction. -->
+      <origin xyz="${x} 0 ${caster_r + 0.005}"/>
     </joint>
     <gazebo reference="${name}_link"><mu1>0.0</mu1><mu2>0.0</mu2><material>Gazebo/DarkGrey</material></gazebo>
   </xacro:macro>

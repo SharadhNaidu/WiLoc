@@ -254,7 +254,7 @@ def generate_launch_description():
         ("odom_rot_bias", "0.04", "relative heading scale error of odometry"),
         ("odom_trans_bias", "0.015", "relative distance scale error of odometry"),
         ("drive", "true", "start the waypoint patrol (false: start in manual/keyboard mode)"),
-        ("laps", "1", "patrol laps"),
+        ("laps", "0", "patrol laps (0: patrol forever)"),
         ("use_estimate", "false", "patrol steers on the WiLoc estimate instead of ground truth"),
         ("output_csv", os.path.expanduser("~/.ros/wiloc_eval.csv"), "evaluation log"),
     ]

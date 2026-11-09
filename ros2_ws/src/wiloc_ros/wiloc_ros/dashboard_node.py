@@ -200,6 +200,8 @@ class DashboardNode(Node):
         self.create_subscription(String, "/wiloc/errors", self.on_errors, 10)
         self.create_subscription(String, "/wiloc/driver_status", self.on_driver_status, 10)
         self.create_subscription(Int32, "/wiloc/gazebo_keys", self.on_gazebo_key, 50)
+        # Other nodes change the mode too (a goal sent to the driver switches to auto).
+        self.create_subscription(String, "/wiloc/drive_mode", self.on_drive_mode, 10)
         self.gz_until = {}  # drive direction -> time until which a Gazebo key counts as held
         self._gz_last_cmd = {}
 
@@ -255,6 +257,15 @@ class DashboardNode(Node):
 
     def on_driver_status(self, msg):
         self.driver_status = msg.data
+
+    def on_drive_mode(self, msg):
+        mode = msg.data.strip().lower()
+        if mode in ("auto", "manual") and mode != self.mode:
+            self.mode = mode
+            self.held.clear()
+            self.gz_until.clear()
+            self.v = self.w = 0.0
+            self.note(f"drive mode: {mode}")
 
     def on_gazebo_key(self, msg):
         """Keys pressed in the Gazebo window (via the wiloc_gazebo key forwarder)."""
@@ -336,7 +347,13 @@ class DashboardNode(Node):
             self.note("teleport service /gazebo/set_entity_state not available")
             return
         rng = np.random.default_rng()
-        x, y = self.fp.sample_free(1, rng, clearance=0.6)[0]
+        # Far enough to be a real kidnapping (a 1 m hop is a non-event), and
+        # with room around it so the robot is not dropped against furniture.
+        cand = self.fp.sample_free(200, rng, clearance=0.6)
+        if self.truth is not None:
+            far = cand[np.hypot(*(cand - self.truth[:2]).T) >= 6.0]
+            cand = far if len(far) else cand
+        x, y = cand[0]
         yaw = float(rng.uniform(-math.pi, math.pi))
         req = SetEntityState.Request()
         req.state = EntityState()
@@ -344,7 +361,9 @@ class DashboardNode(Node):
         req.state.reference_frame = "world"
         req.state.pose.position.x, req.state.pose.position.y, req.state.pose.position.z = float(x), float(y), 0.02
         req.state.pose.orientation = yaw_to_quat(yaw)
-        self.set_mode("manual")
+        # The mode is kept: in auto the driver notices the jump and replans its
+        # route from the new spot, so the robot keeps moving (motion is what
+        # lets the filter tell look-alike places apart).
         self.teleport_cli.call_async(req)
         self.note(f"KIDNAP: robot teleported to ({x:.1f}, {y:.1f}); odometry did not see it")
 
