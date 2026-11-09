@@ -46,7 +46,7 @@ from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
 from wiloc.estimators import KNN
-from wiloc.filters import ParticleFilter, WifiEKF
+from wiloc.filters import KLDConfig, ParticleFilter, WifiEKF
 from wiloc.fingerprint import DenseRadioMap, RadioMap
 from wiloc.geometry import wrap_angle
 from wiloc.motion import OdometryMotionModel, odom_delta
@@ -66,7 +66,17 @@ class LocalizationNode(Node):
         params = {
             "floorplan": "office",
             "method": "pf",
-            "n_particles": 1500,
+            "n_particles": 1500,  # fixed count (kld:=false)
+            # Particle-filter options; each was measured offline first
+            # (python -m wiloc filters: 216 kidnappings per variant).
+            "kld": True,  # adaptive count: ~40 % less compute, same accuracy
+            "kld_n_min": 500,
+            "kld_n_max": 5000,
+            "estimator": "cluster",  # heaviest mode: never between two hypotheses or inside a wall
+            "reseed_fraction": 0.3,  # lost for 6 updates in a row: spread 30 %; p90 recovery 23 -> 17 s
+            # sensor resetting: half the injected particles around the WKNN fix, any heading;
+            # with the three above: p90 recovery 8 s, tracking after kidnaps 0.64 -> 0.37 m
+            "sensor_reset": 0.5,
             "global_init": False,
             "radio_map": "",
             "map_cache": True,
@@ -99,8 +109,18 @@ class LocalizationNode(Node):
         self.rmap, self.dense = self._radio_maps(gp)
         self.fix_est = KNN(int(gp("knn_k")), weighted=True).fit(self.rmap)
         mm = OdometryMotionModel(gp("alpha1"), gp("alpha2"), gp("alpha3"), gp("alpha4"))
+        kld = KLDConfig(n_min=int(gp("kld_n_min")), n_max=int(gp("kld_n_max"))) if gp("kld") else None
         self.pf = ParticleFilter(
-            self.fp, self.dense, int(gp("n_particles")), mm, temper=float(gp("likelihood_temper")), rng=np.random.default_rng(0)
+            self.fp,
+            self.dense,
+            int(gp("n_particles")),
+            mm,
+            temper=float(gp("likelihood_temper")),
+            rng=np.random.default_rng(0),
+            kld=kld,
+            estimator=str(gp("estimator")),
+            reseed_fraction=float(gp("reseed_fraction")),
+            hint_fraction=float(gp("sensor_reset")),
         )
         self.ekf = WifiEKF(mm)
         self.global_init = bool(gp("global_init"))
@@ -139,7 +159,9 @@ class LocalizationNode(Node):
         self.create_timer(1.0 / float(gp("publish_rate")), self.on_timer)
         self.get_logger().info(
             f"WiLoc localisation: method={self.method}, {len(self.rmap.positions)} fingerprints, "
-            f"{self.rmap.n_aps} APs, {'global' if self.global_init else 'tracking'} initialisation"
+            f"{self.rmap.n_aps} APs, {'global' if self.global_init else 'tracking'} initialisation, particles "
+            + (f"{kld.n_min}-{kld.n_max} (KLD)" if kld else str(self.pf.n))
+            + f", {self.pf.estimator} estimate, re-seed {self.pf.reseed_fraction:.0%}, sensor reset {self.pf.hint_fraction:.0%}"
         )
 
     # ---------------------------------------------------------- setup
@@ -233,6 +255,8 @@ class LocalizationNode(Node):
         self.propagate()
         xy, cov = self.fix_est.predict_with_cov(z[None])
         self.last_fix = (xy[0], cov[0])
+        if not np.isnan(z).all():
+            self.pf.hint = self.last_fix  # where injected particles are drawn when the filter is lost
         self.last_scan = z
         # The motion gate is the particle filter's (see _should_update); the
         # EKF gates its own updates (chi-square) and WKNN has no memory.
@@ -352,6 +376,10 @@ class LocalizationNode(Node):
             "resamples": self.pf.n_resamples,
             "injected": self.pf.n_injected,
             "w_ratio": float(self.pf.w_fast / self.pf.w_slow) if self.pf.w_slow else 1.0,
+            "lost": self.pf.lost(),
+            "reseeds": self.pf.n_reseeds,
+            # where the particles are: the top hypotheses and their share ("here 55 % or there 35 %")
+            "modes": [[float(m["xy"][0]), float(m["xy"][1]), float(m["weight"])] for m in self.pf.modes(k=3)],
         }
         self.status_pub.publish(String(data=json.dumps(status)))
 

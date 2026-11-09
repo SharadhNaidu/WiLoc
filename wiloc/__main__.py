@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 import numpy as np
 
@@ -50,7 +51,17 @@ def main(argv=None):
 
     sub.add_parser("warm-cache", help="pre-build the cached radio maps the ROS localiser uses")
 
+    fl = sub.add_parser("filters", help="particle-filter options (KLD, cluster estimate, re-seed) under kidnappings")
+    fl.add_argument("--out", default="results")
+    fl.add_argument("--runs", type=int, default=8)
+    fl.add_argument("--duration", type=float, default=480.0)
+
     args = p.parse_args(argv)
+    if args.cmd == "filters":
+        from .exp_filters import exp_filters
+
+        print(json.dumps(exp_filters(args.out, runs=args.runs, duration=args.duration), indent=2))
+        return
     if args.cmd == "warm-cache":
         import time
 
