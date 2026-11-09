@@ -3,9 +3,11 @@
 Follow these steps **in order** and do not skip any. Copy each command exactly
 and paste it into the terminal. You do not need to understand the commands.
 
-**What you will get:** a 3D office in which a small humanoid robot on wheels
-drives around. You drive the robot with the arrow keys. A second window shows
-where the robot really is and where Wi-Fi tells us it is.
+**What you will get:** one window, **WiLoc Studio**. On the left is a live 3D
+building (an office, a home, a hospital ward, a warehouse, a library or a
+factory) with a small robot driving around. On the right is a map of where the
+robot thinks it is, worked out from nothing but Wi-Fi signal strength and its
+wheel turns.
 
 ---
 
@@ -98,7 +100,7 @@ Paste this and press Enter:
 
 ---
 
-## Step 4: Start the simulation
+## Step 4: Start WiLoc
 
 Paste this and press Enter:
 
@@ -106,93 +108,104 @@ Paste this and press Enter:
 ./wiloc.sh run
 ```
 
-Wait **20 to 60 seconds**. Two windows will open:
+One window opens, **WiLoc Studio**, full screen. It shows "Starting WiLoc…"
+for about 10 to 30 seconds while the simulation starts behind it.
 
-* **Gazebo** (left): the 3D office with the robot in it. The robot is the
-  white humanoid with blue eyes standing in the corridor.
-* **WiLoc** (right): a map with coloured areas, plus some graphs.
-
-> Leave the terminal open. Closing it stops the simulation.
+* **F11** switches between full screen and a normal window.
+* **Ctrl + Shift + Q** quits.
+* Leave the terminal open. Closing it stops WiLoc.
 
 ---
 
-## Step 5: Drive the robot
+## Step 5: What you see
 
-1. **Click once** with the mouse anywhere inside the 3D view of the
-   **Gazebo** window (the picture of the office).
-2. Press and **hold** the arrow keys:
-
-| Key | What the robot does |
+| Part of the window | What it shows |
 |---|---|
-| **Up arrow** | drives forward |
-| **Down arrow** | drives backward |
-| **Left arrow** | turns left |
-| **Right arrow** | turns right |
-| **Up + Left together** | drives in a curve |
-| **Space** | stops |
+| **Top right** | The **big number** is how far, in metres, the robot's own guess is from where it really is. The pill next to it says **Located**, **Not sure** or **Searching**, with one line of explanation underneath. |
+| **Venue and Routers chips** | Pick a building: Office, Home, Hospital ward, Warehouse, Library, Factory. Then pick how the Wi-Fi routers are placed in it. A new building takes about 15 seconds; a new router layout switches at once. |
+| **The real world** (left) | The live 3-D simulation. The coloured lines run from the robot to each Wi-Fi router: thick means a strong signal, dashed means it goes through a wall, and faded means a person or a forklift is in the way. The rings on the floor are the guesses of the three methods. |
+| **What the robot believes** (right) | The map. The orange background is the Wi-Fi signal strength. The coloured dots are the routers. The black triangle is the real robot, and the blue dot with small blue dots around it is the particle filter's guess with its particles. People and vehicles move on the map too. |
+| **The race** (bottom left) | How wrong each method is over the last 2 minutes: the **particle filter** (Wi-Fi + wheels + map), the **Kalman filter** (Wi-Fi + wheels), **Wi-Fi only**, and **wheels only**. The chips show each method's typical error over the last 30 seconds. |
+| **Try it** (bottom right) | The buttons for visitors. |
 
-Let go of the key and the robot stops.
+---
 
-You can also click on the **WiLoc** window and drive from there. In that
-window **W, A, S, D** work as well, and holding **Shift** makes the robot go
-twice as fast.
+## Step 6: Try it
 
-### Fun extra keys (work in both windows)
-
-| Key | What happens |
+| Do this | What happens |
 |---|---|
-| **K** | **Kidnap**: the robot is teleported to a random place. Watch how WiLoc finds it again. |
-| **G** | WiLoc "forgets" where the robot is and has to find it from scratch. |
-| **H** | Changes the coloured Wi-Fi map: strongest signal, then each Wi-Fi router in turn. |
-| **M** | The robot drives around the office by itself. Press **M** again to take back control. |
+| **Kidnap the robot** | The robot is teleported somewhere else, so its wheels do not notice. The pill turns to **Searching**, and a few seconds later a message says **"Re-found in 6.2 s"**. |
+| **Click on the map** | The robot plans a path there, through the doors, and drives to it. |
+| **Click a router** on the map | Switches that router off (unplugged), or back on. |
+| **Unplug a router** | Switches off the router the robot hears loudest. Within about 2 seconds the map shows it as **"off · noticed"**: the robot has worked out that it is gone and stops relying on it. Press again to plug everything back in. |
+| **People block Wi-Fi: on / off** | Whether people and vehicles weaken the Wi-Fi signals passing through them. |
+| **Patrol** | The robot goes back to driving its round. |
+| **View: overview / follow** | The 3-D camera watches the whole building, or follows the robot. |
+| **Arrow keys** or **W A S D** | Drive the robot by hand. **Patrol** gives control back. |
+
+Keys for the person running the stand (visitors will not press these by accident):
+
+| Keys | What happens |
+|---|---|
+| **Ctrl + Shift + R** | Soft reset: robot back to the start, all routers on, people on, patrol on. |
+| **Ctrl + Shift + F** | The robot "forgets" where it is and has to find itself from scratch. |
+| **Ctrl + Shift + A** | Auto tour on or off (see Step 8). |
+| **Ctrl + Shift + Q** | Quit. |
 
 ---
 
-## Step 6: Understand what you see in the WiLoc window
+## Step 7: Stop
 
-Look at the **Overview** tab, the first one at the top.
+Press **Ctrl + Shift + Q** in the window, or **Ctrl + C** in the terminal.
 
-**The big map on the left:**
-
-* The **coloured background** shows the Wi-Fi signal strength. Red or orange
-  means strong, light blue means weak.
-* The **coloured dots** with names (AP1, AP2, ...) are the **Wi-Fi routers**.
-* The **white circle** is where the robot **really** is.
-* The **blue dot** with the blue shaded area is where **WiLoc thinks** the
-  robot is. The shaded area shows how unsure it is.
-* The **small orange dots** are the guesses the algorithm is considering.
-* The **coloured lines** run from the robot to each router. Each label shows
-  the signal strength (for example `-47 dBm`) and how many walls the signal
-  passes through (`3w` means 3 walls).
-* The **lines on the floor** show the paths: black is the real path, blue is
-  what WiLoc estimated, and grey dashed is where the robot would think it is
-  using only its wheels.
-
-**The graphs on the right:**
-
-* **Latest Wi-Fi scan:** the signal from each router, measured versus
-  predicted.
-* **Position error:** how wrong each method is, in metres. The **blue line
-  (WiLoc) should be the lowest**.
-* **Filter internals:** technical details of the algorithm.
-
-**The status bar at the top** shows the current error, for example
-`error now 0.30 m`.
-
-The other tabs (**Wi-Fi details**, **Localization details**, **ROS graph**)
-show more detail if you are curious.
-
----
-
-## Step 7: Stop the simulation
-
-Click on the **terminal** window and press **Ctrl + C**.
-
-If any windows stay open, paste this and press Enter:
+If something stays open, paste this and press Enter:
 
 ```bash
 ./wiloc.sh stop
 ```
+
+---
+
+## Step 8: At the poster stand
+
+**The day before**
+1. `./wiloc.sh check`: a 2-minute test run without a window. Every line must
+   say **PASS**. For example: *particle filter tracks the robot: median error
+   0.3 m*; *re-found after a kidnap: 7 s*.
+2. `./wiloc.sh record`: records a 6-minute backup video to
+   `results/wiloc_demo.mp4`. It takes about 7 minutes. Copy the video to your
+   phone as well.
+
+**At the venue, 15 minutes before visitors arrive**
+* **Power:** laptop on the charger. Windows power mode **Best performance**.
+* **Never sleep:** Settings → System → Power: screen and sleep **Never**.
+  Closing the lid: **Do nothing**.
+* **No pop-ups:** turn on **Do not disturb**. Pause Windows Update for a week.
+* **Projector or monitor:** press **Win + P** → **Duplicate**.
+* **Start:** in the terminal run `cd ~/WiLoc && ./wiloc.sh demo`.
+
+`demo` is `run` plus the **auto tour**. When nobody has touched the laptop for
+90 seconds, it patrols, kidnaps the robot every couple of minutes and moves on
+to the next building every 6 minutes. Any key or click hands control back to
+the visitor at once.
+
+**A 2-minute talk for visitors**
+1. *"This robot has no GPS and no camera. It finds itself using only the Wi-Fi
+   signal strength from the routers, plus its wheel turns."* Point at the big
+   number: it is usually 0.2 to 0.5 m.
+2. *"Watch: I'll kidnap it."* Press **Kidnap the robot**. *"Its wheels didn't
+   feel that, so it thinks it is still over there. Wi-Fi tells it otherwise.
+   Searching… Re-found."*
+3. *"Three methods are racing."* Point at the race chart: *"Wi-Fi alone jumps
+   around by metres. Adding the wheels and the floor plan, which is the
+   particle filter, keeps it steady."*
+4. For people who stay: unplug a router, switch to the **Hospital ward**
+   (identical rooms: "Not sure: Room 3 or Room 11"), or the **Warehouse**
+   (metal racks block Wi-Fi). Let them click on the map to send the robot.
+
+**If something goes wrong in front of visitors:** press **Ctrl + Shift + R**.
+If the window shows "Restarting the simulation…", wait 15 seconds: it restarts
+itself. As a last resort, play the backup video.
 
 ---
 
@@ -220,12 +233,10 @@ cd ~/WiLoc && git pull && ./wiloc.sh build && ./wiloc.sh run
 |---|---|
 | `Permission denied` when running `./wiloc.sh` | Run `chmod +x wiloc.sh`, then try again. |
 | `ROS 2 Humble not found` | ROS 2 Humble is not installed. Ask the team. |
-| The Gazebo window is **black**, flickers, or closes right away (common in virtual machines) | Stop with **Ctrl + C**, then start with `./wiloc.sh run --software-gl` |
-| Everything is **very slow** | In your VM settings, give it more CPUs (4 or more) and memory (8 GB or more). You can also run without the 3D window and drive from the WiLoc window: `./wiloc.sh run gui:=false` |
-| `Spawn service failed`, or **no robot** appears | Run `./wiloc.sh stop`, wait 5 seconds, then `./wiloc.sh run` again. |
-| Pressing keys does **nothing** | **Click** inside the Gazebo 3D view, or on the WiLoc window, first. Keys only go to the window you clicked. |
-| Text in the windows is **too small or too big** | Bigger: `./wiloc.sh run ui_font_dpi:=144`. Normal: `./wiloc.sh run ui_font_dpi:=96` |
-| The robot moves **by itself** in a strange way | Someone else on the same network runs ROS. Run `export ROS_DOMAIN_ID=42`, then `./wiloc.sh run` in the same terminal. |
+| The 3-D view stays **grey or black**, or the window closes (common in virtual machines) | Quit, then start with `./wiloc.sh run --software-gl` |
+| Everything is **very slow** | Close other programs. In a VM, give it 4+ CPUs and 8 GB+ memory. |
+| "Starting WiLoc…" for more than a minute | Quit, run `./wiloc.sh stop`, wait 5 seconds, then `./wiloc.sh run` again. |
+| Your own `ros2 topic list` in another terminal shows nothing | WiLoc keeps ROS traffic on this computer. Run `export ROS_LOCALHOST_ONLY=1` in that terminal first. |
 | Errors after `git pull` | Run `rm -rf ~/wiloc_ws && ./wiloc.sh build`, then `./wiloc.sh run`. |
 
 Still stuck? Send the team a photo of the terminal showing the error.
@@ -235,12 +246,17 @@ Still stuck? Send the team a photo of the terminal showing the error.
 ## For the curious: more options
 
 ```bash
-./wiloc.sh run drive:=true          # robot starts by driving around on its own
-./wiloc.sh run method:=ekf          # use a different algorithm (Kalman filter)
-./wiloc.sh run method:=wknn         # Wi-Fi only, no filter (to see how much worse it is)
-./wiloc.sh run global_init:=true    # robot starts with no idea where it is
-./wiloc.sh run rviz:=true           # also open RViz
-./wiloc.sh test                     # run the automatic tests (about 1 minute)
-./wiloc.sh experiments              # make all the result graphs (into the results folder)
-./wiloc.sh                          # list every command
+./wiloc.sh run --venue hospital --layout staggered   # start in another building / router layout
+./wiloc.sh run --windowed                            # a normal window instead of full screen
+./wiloc.sh run --launch-arg global_init:=true        # robot starts with no idea where it is
+./wiloc.sh run --launch-arg method:=ekf              # the Kalman filter drives the robot's map frame
+./wiloc.sh launch gui:=true rviz:=true               # the bare simulation with Gazebo's own window and RViz
+./wiloc.sh check                                     # pre-flight check (about 2 minutes)
+./wiloc.sh record my_video.mp4                       # record the backup video
+./wiloc.sh test                                      # run the automatic tests (about 1 minute)
+./wiloc.sh experiments                               # make all the result graphs (into the results folder)
+PYTHONPATH=. python3 -m wiloc venues                 # the six-venue comparison (results/venues.png)
+./wiloc.sh                                           # list every command
 ```
+
+How it works, with the maths: [docs/theory.md](docs/theory.md).

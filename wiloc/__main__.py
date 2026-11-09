@@ -60,7 +60,19 @@ def main(argv=None):
     ou.add_argument("--out", default="results")
     ou.add_argument("--runs", type=int, default=4)
 
+    ve = sub.add_parser("venues", help="every venue x router layout x method: tracking error and kidnap recovery")
+    ve.add_argument("--out", default="results")
+    ve.add_argument("--runs", type=int, default=3)
+
     args = p.parse_args(argv)
+    if args.cmd == "venues":
+        from .exp_venues import exp_venues
+
+        for r in exp_venues(args.out, runs=args.runs):
+            print(f"{r['title']:14s} {r['layout']:14s} {r['n_aps']} APs  PF {r['pf_median']:.2f}/{r['pf_p90']:.2f}  "
+                  f"EKF {r['ekf_median']:.2f}/{r['ekf_p90']:.2f}  WKNN {r['wknn_median']:.2f}/{r['wknn_p90']:.2f}  "
+                  f"PF re-found {r['pf_recovered']} {r['pf_recovery_s']}")
+        return
     if args.cmd == "outage":
         from .exp_outage import exp_outage
 
