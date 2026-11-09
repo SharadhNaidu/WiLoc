@@ -17,9 +17,17 @@ The "real" radio world comes from the venue's ``radio:`` section
 localiser builds its radio map from the same config.  Only a ``radio_map``
 file given to the localiser can describe a different world.
 
+People and vehicles walking around (the venue's ``movers:``) weaken the links
+that pass close to them, and noise zones add temporal noise
+(``wiloc.movers``).  Their positions are a function of sim time, taken from
+the ``/ground_truth`` stamps, so they match Gazebo's scripted actors.  The
+localiser is not told: it is a robustness test.  ``/wiloc/body_shadowing``
+switches both effects off and on.
+
 Topics
   sub  /ground_truth            nav_msgs/Odometry
   sub  /wiloc/heatmap_select    std_msgs/Int32   (-1 = strongest AP, i = AP index)
+  sub  /wiloc/body_shadowing    std_msgs/Bool    (movers' effect on Wi-Fi, default on)
   pub  /wifi/scan               wiloc_msgs/RssiScan
   pub  /wifi/scan_debug         std_msgs/String  (JSON RSSI breakdown per AP)
   pub  /wiloc/wifi_links        visualization_msgs/MarkerArray
@@ -38,7 +46,7 @@ from geometry_msgs.msg import Point
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
-from std_msgs.msg import ColorRGBA, Int32, String
+from std_msgs.msg import Bool, ColorRGBA, Int32, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from wiloc.radio import RadioSimulator
@@ -79,7 +87,10 @@ class WifiSensorNode(Node):
         self.sim = RadioSimulator(self.fp, cfg)
         self.rng = np.random.default_rng(int(gp("noise_seed")))
         self.pose = None
+        self.t_truth = 0.0  # sim time of the latest pose (s)
         self.n_scans = 0
+        self.movers = self.fp.movers
+        self.body_shadowing = True
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.pub = self.create_publisher(RssiScan, "/wifi/scan", 10)
@@ -90,6 +101,7 @@ class WifiSensorNode(Node):
         self.heat_marker_pub = self.create_publisher(MarkerArray, "/wiloc/rssi_heatmap_markers", latched)
         self.create_subscription(Odometry, "/ground_truth", self.on_truth, 10)
         self.create_subscription(Int32, "/wiloc/heatmap_select", self.on_heatmap_select, 10)
+        self.create_subscription(Bool, "/wiloc/body_shadowing", self.on_body_shadowing, 10)
         self.create_timer(1.0 / float(gp("scan_rate")), self.on_timer)
         self._prepare_heatmaps()
         self.heat_choice = -1
@@ -97,12 +109,19 @@ class WifiSensorNode(Node):
         self.publish_heatmap()
         self.get_logger().info(
             f"Wi-Fi sensor ready: {len(self.fp.access_points)} APs, {gp('scan_rate')} Hz, "
-            f"shadowing {cfg.shadowing_sigma_db} dB / {cfg.shadowing_corr_m} m, noise {cfg.temporal_sigma_db} dB"
+            f"shadowing {cfg.shadowing_sigma_db} dB / {cfg.shadowing_corr_m} m, noise {cfg.temporal_sigma_db} dB, "
+            f"{len(self.movers)} movers, {len(self.movers.zones)} noise zones"
         )
 
     def on_truth(self, msg: Odometry):
         p = msg.pose.pose.position
         self.pose = np.array([p.x, p.y])
+        self.t_truth = msg.header.stamp.sec + 1e-9 * msg.header.stamp.nanosec
+
+    def on_body_shadowing(self, msg: Bool):
+        if bool(msg.data) != self.body_shadowing:
+            self.body_shadowing = bool(msg.data)
+            self.get_logger().info(f"moving obstacles' effect on Wi-Fi: {'on' if self.body_shadowing else 'off'}")
 
     def on_heatmap_select(self, msg: Int32):
         self.heat_choice = int(msg.data) if -1 <= msg.data < len(self.fp.access_points) else -1
@@ -112,8 +131,12 @@ class WifiSensorNode(Node):
     def on_timer(self):
         if self.pose is None:
             return
-        pose = self.pose.copy()
-        z = self.sim.measure(pose[None, :], self.rng)[0]
+        pose, t = self.pose.copy(), self.t_truth
+        blocking = extra_sigma = None
+        if self.body_shadowing and self.movers:
+            blocking = self.movers.blocking_loss(pose[None, :], self.fp.ap_positions, t)
+            extra_sigma = self.movers.extra_sigma(pose[None, :])
+        z = self.sim.measure(pose[None, :], self.rng, extra_loss_db=blocking, extra_sigma_db=extra_sigma)[0]
         stamp = self.get_clock().now().to_msg()
         self.n_scans += 1
 
@@ -126,17 +149,22 @@ class WifiSensorNode(Node):
         self.pub.publish(msg)
 
         rows = self.sim.breakdown(pose)
-        for r, zj in zip(rows, z):
+        block = np.zeros(len(rows)) if blocking is None else blocking[0]
+        for r, zj, bj in zip(rows, z, block):
+            r["blocking_db"] = float(bj)  # bodies near the link (included in measured, not in mean_rssi)
             r["measured_dbm"] = None if np.isnan(zj) else float(zj)
-            r["noise_db"] = None if np.isnan(zj) else float(zj - r["mean_rssi_dbm"])
+            r["noise_db"] = None if np.isnan(zj) else float(zj - (r["mean_rssi_dbm"] - bj))
         self.debug_pub.publish(
             String(
                 data=json.dumps(
                     {
                         "scan": self.n_scans,
+                        "t": t,
                         "pose": [float(pose[0]), float(pose[1])],
                         "sensitivity_dbm": self.sim.cfg.sensitivity_dbm,
                         "temporal_sigma_db": self.sim.cfg.temporal_sigma_db,
+                        "body_shadowing": self.body_shadowing,
+                        "extra_noise_db": 0.0 if extra_sigma is None else float(extra_sigma[0]),
                         "aps": rows,
                     }
                 )

@@ -7,6 +7,12 @@ The world is meant to look like a real place: walls in plain painted colours
 (the radio material shows only in the 2-D map), a light floor in large tiles,
 soft even lighting, and the plan's furniture built from primitives -- every piece a static model with one
 collision box, the footprint the path planner avoids.
+
+The venue's movers (``wiloc.movers``) become scripted actors: people with
+Gazebo's animated meshes, vehicles built from primitives.  Their trajectories
+are sampled from the same ``Mover.position(t)`` the Wi-Fi sensor uses, so the
+person you see in the 3-D view is the one weakening the signal.  Actors have no
+collision: the robot's driver slows down for them instead.
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ import argparse
 import math
 
 from wiloc.environment import FloorPlan, Furniture
+from wiloc.movers import Mover
 
 from . import theme
 
@@ -292,12 +299,97 @@ def _furniture_model(i, f: Furniture) -> str:
     </model>"""
 
 
+# ------------------------------------------------------------------- movers
+
+
+def _vehicle_parts(kind: str) -> _Parts:
+    """Vehicle body in its local frame: +x is forward, origin on the floor."""
+    p = _Parts()
+    if kind == "forklift":
+        yellow, dark = "#E7B416", "#2B2F33"
+        p.box(-0.15, 0, 0.45, 1.5, 1.0, 0.6, yellow)  # body
+        p.box(-0.75, 0, 0.75, 0.35, 0.95, 0.6, dark)  # counterweight
+        p.box(-0.1, 0, 1.0, 0.5, 0.6, 0.12, dark)  # seat
+        for sx in (-0.75, 0.45):
+            for sy in (-0.45, 0.45):
+                p.box(sx, sy, 2.05, 0.06, 0.06, 1.2, dark)  # overhead guard posts
+        p.box(-0.15, 0, 2.62, 1.3, 0.96, 0.05, dark)
+        p.box(0.68, 0, 1.15, 0.1, 0.85, 2.3, "#3A3D42")  # mast
+        for sy in (-0.25, 0.25):
+            p.box(1.15, sy, 0.12, 0.9, 0.12, 0.05, "#55595F")  # forks
+        p.box(1.15, 0, 0.32, 0.8, 0.9, 0.3, "#C8A06A")  # a pallet box on the forks
+        for sx in (-0.6, 0.45):
+            for sy in (-0.52, 0.52):
+                p.box(sx, sy, 0.2, 0.4, 0.14, 0.4, "#1C1C1C")  # wheels
+    elif kind == "agv":
+        p.box(0, 0, 0.18, 1.2, 0.8, 0.3, "#E8EAED")
+        p.box(0, 0, 0.05, 1.22, 0.82, 0.08, "#2B2F33")  # bumper
+        p.box(0.55, 0, 0.36, 0.08, 0.3, 0.06, "#3B82F6")  # status light
+        p.box(-0.05, 0, 0.55, 0.9, 0.7, 0.45, "#C8A06A")  # load
+    elif kind == "gantry":
+        steel, yellow = "#5A6B7B", "#E7B416"
+        for sy in (-1.6, 1.6):
+            p.box(0, sy, 1.6, 0.25, 0.25, 3.2, steel)
+            p.box(0, sy, 0.1, 0.8, 0.4, 0.2, steel)
+        p.box(0, 0, 3.3, 0.4, 3.6, 0.3, yellow)  # bridge
+        p.box(0, 0.4, 2.9, 0.45, 0.45, 0.45, "#3E4A56")  # hoist
+        p.box(0, 0.4, 2.2, 0.03, 0.03, 1.0, "#1C1C1C")  # cable
+        p.box(0, 0.4, 1.6, 0.7, 0.5, 0.3, "#8D99A6")  # load
+    else:  # cart
+        p.box(0, 0, 0.35, 0.6, 0.45, 0.3, "#8D99A6")
+        p.box(-0.32, 0, 0.75, 0.04, 0.4, 0.04, "#2B2F33")  # handle
+        p.box(-0.3, 0, 0.55, 0.03, 0.03, 0.4, "#2B2F33")
+        for sx in (-0.22, 0.22):
+            for sy in (-0.17, 0.17):
+                p.box(sx, sy, 0.08, 0.1, 0.05, 0.16, "#1C1C1C")
+    return p
+
+
+def _trajectory(m: Mover, kind: str) -> str:
+    rows = "".join(
+        f"<waypoint><time>{t:.3f}</time><pose>{x:.3f} {y:.3f} 0 0 0 {yaw:.4f}</pose></waypoint>"
+        for t, x, y, yaw in m.keyframes()
+    )
+    return f"""
+      <script>
+        <loop>true</loop>
+        <delay_start>0</delay_start>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="{kind}">{rows}
+        </trajectory>
+      </script>"""
+
+
+def _mover_actor(m: Mover) -> str:
+    x, y = m.route[0]
+    if m.type == "person":
+        anim = m.anim or ("stand" if m.static else "walk")
+        mesh = f"file://media/models/{anim}.dae"
+        return f"""
+    <actor name="mover_{m.id}">
+      <pose>{x:.3f} {y:.3f} 0 0 0 {m.yaw:.4f}</pose>
+      <skin><filename>{mesh}</filename><scale>1.0</scale></skin>
+      <animation name="{anim}">
+        <filename>{mesh}</filename><scale>1.0</scale>
+        <interpolate_x>{"true" if anim in ("walk", "run") else "false"}</interpolate_x>
+      </animation>{_trajectory(m, anim)}
+    </actor>"""
+    parts = _vehicle_parts(m.type)
+    return f"""
+    <actor name="mover_{m.id}">
+      <pose>{x:.3f} {y:.3f} 0 0 0 {m.yaw:.4f}</pose>
+      <link name="link">{"".join(parts.items)}
+      </link>{_trajectory(m, "move")}
+    </actor>"""
+
+
 def world_sdf(fp: FloorPlan) -> str:
     walls = "".join(
         _wall_model(i, seg, m, fp.wall_height, fp.wall_thickness) for i, (seg, m) in enumerate(zip(fp.walls, fp.wall_materials))
     )
     aps = "".join(_ap_model(i, ap, fp.wall_height) for i, ap in enumerate(fp.access_points))
     furniture = "".join(_furniture_model(i, f) for i, f in enumerate(fp.furniture))
+    movers = "".join(_mover_actor(m) for m in fp.movers.movers)
     cx, cy = fp.width / 2, fp.height / 2
     return f"""<?xml version="1.0"?>
 <sdf version="1.6">
@@ -335,7 +427,7 @@ def world_sdf(fp: FloorPlan) -> str:
       <camera name="user_camera">
         <pose>{cx:.2f} {cy - 10.5:.2f} 17.5 0 0.98 1.5708</pose>
       </camera>
-    </gui>{_ground_model(fp)}{_floor_model(fp)}{walls}{furniture}{aps}
+    </gui>{_ground_model(fp)}{_floor_model(fp)}{walls}{furniture}{aps}{movers}
   </world>
 </sdf>
 """

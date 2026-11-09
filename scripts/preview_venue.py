@@ -65,6 +65,10 @@ def main(argv=None):
     p.add_argument("venue", nargs="?", default="office")
     p.add_argument("--out", default=os.path.expanduser("~/wiloc_runs/preview"))
     p.add_argument("--timeout", type=float, default=60.0)
+    p.add_argument("--view", action="append", default=[], metavar="NAME=x,y,z,pitch,yaw",
+                   help="extra camera (repeatable), e.g. corridor=0.6,6,1.7,0.25,0")
+    p.add_argument("--only", action="store_true", help="render only the --view cameras")
+    p.add_argument("--settle", type=float, default=3.0, help="seconds after the first frame before saving")
     a = p.parse_args(argv)
 
     import rclpy
@@ -75,7 +79,10 @@ def main(argv=None):
     from wiloc_ros.world_gen import world_sdf
 
     fp = load_floorplan(a.venue)
-    views = default_views(fp)
+    views = {} if a.only else default_views(fp)
+    for spec in a.view:
+        name, vals = spec.split("=", 1)
+        views[name] = tuple(float(v) for v in vals.split(","))
     sdf = world_sdf(fp)
     cams = "".join(_camera(n, *v) for n, v in views.items())
     sdf = sdf.replace("\n  </world>", cams + "\n  </world>")
@@ -96,7 +103,7 @@ def main(argv=None):
 
         def on_image(name, msg):
             # the first frames can show a half-loaded scene: keep one from 3 s after the first
-            ready_at.setdefault(name, time.monotonic() + 3.0)
+            ready_at.setdefault(name, time.monotonic() + a.settle)
             if name in saved or time.monotonic() < ready_at[name]:
                 return
             img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)

@@ -165,3 +165,13 @@ kidnap_spots:
   - [7.0, 9.0]
   - [13.5, 10.8]
   - [18.0, 9.0]
+
+# People: they walk fixed routes (or sit / stand still) and weaken the Wi-Fi
+# links that pass through them (wiloc.movers).  The localiser does not know.
+movers:
+  - {id: walker_corridor, type: person, route: [[1.2, 6.6], [18.8, 6.6]], loop: false, pause: 3}
+  - {id: walker_kitchen, type: person, route: [[12.5, 6.4], [17.5, 6.4], [17.5, 2.0], [18.3, 2.0]], loop: false, pause: 4}
+  - {id: sitting_a, type: person, route: [[1.2, 9.0]], yaw: 3.1416, anim: sitting}
+  - {id: sitting_g, type: person, route: [[14.0, 1.2]], yaw: -1.5708, anim: sitting}
+  - {id: talking_1, type: person, route: [[18.6, 10.2]], yaw: -0.65, anim: stand}
+  - {id: talking_2, type: person, route: [[19.3, 9.6]], yaw: 2.49, anim: stand}

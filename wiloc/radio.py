@@ -194,13 +194,28 @@ class RadioSimulator:
             )
         return rows
 
-    def measure(self, pts: np.ndarray, rng: np.random.Generator, n_samples: int = 1) -> np.ndarray:
+    def measure(
+        self,
+        pts: np.ndarray,
+        rng: np.random.Generator,
+        n_samples: int = 1,
+        extra_loss_db: np.ndarray | None = None,
+        extra_sigma_db: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Noisy scans. Returns (N, A) for n_samples == 1 else (N, n_samples, A).
 
         APs below the receiver sensitivity are reported as NaN (not heard).
+        ``extra_loss_db`` (N, A) is subtracted from the mean (bodies in the way,
+        ``wiloc.movers``); ``extra_sigma_db`` (N,) adds temporal noise in
+        quadrature (noise zones).  Without them the draw is unchanged.
         """
         mu = self.mean_rssi(pts)
-        z = mu[:, None, :] + self.cfg.temporal_sigma_db * rng.standard_normal(
+        if extra_loss_db is not None:
+            mu = mu - np.asarray(extra_loss_db, dtype=float).reshape(mu.shape)
+        sigma = self.cfg.temporal_sigma_db
+        if extra_sigma_db is not None:
+            sigma = np.hypot(sigma, np.asarray(extra_sigma_db, dtype=float).reshape(-1, 1, 1))
+        z = mu[:, None, :] + sigma * rng.standard_normal(
             (mu.shape[0], n_samples, mu.shape[1])
         )
         if self.cfg.quantize:

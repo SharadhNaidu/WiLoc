@@ -7,7 +7,8 @@ map constraint, and the Gazebo world generator in ``wiloc_ros``.
 Besides walls and access points a plan can describe what makes it look like a
 real place: named ``rooms`` (for captions), ``furniture`` (typed boxes that the
 robot must drive around: ``obstacles``, used by the planner) and curated
-``kidnap_spots``.  Furniture is deliberately invisible to the radio model and
+``kidnap_spots``, plus ``movers`` (people, forklifts, AGVs) and ``noise_zones``
+(see ``wiloc.movers``).  Furniture is deliberately invisible to the radio model and
 to the particle filter: the radio world and every result stay comparable.
 """
 
@@ -21,6 +22,7 @@ import numpy as np
 import yaml
 
 from .geometry import point_segment_distance, segments_intersect
+from .movers import Movers
 
 # Per-wall penetration loss in dB at 2.4 GHz.  Typical values drawn from the
 # COST 231 multi-wall model and indoor measurement campaigns (light walls
@@ -113,6 +115,7 @@ class FloorPlan:
     furniture: list[Furniture] = field(default_factory=list)
     rooms: list[tuple[str, tuple[float, float, float, float]]] = field(default_factory=list)
     kidnap_spots: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
+    movers: Movers = field(default_factory=Movers)  # people / vehicles and noise zones (``movers:``, ``noise_zones:``)
 
     # ------------------------------------------------------------------ io
     @classmethod
@@ -140,6 +143,7 @@ class FloorPlan:
             furniture=[Furniture.from_dict(f) for f in d.get("furniture") or []],
             rooms=[(str(r["name"]), tuple(float(v) for v in r["rect"])) for r in d.get("rooms") or []],
             kidnap_spots=np.array(d.get("kidnap_spots") or [], dtype=float).reshape(-1, 2),
+            movers=Movers.from_dicts(d.get("movers"), d.get("noise_zones")),
         )
 
     @classmethod

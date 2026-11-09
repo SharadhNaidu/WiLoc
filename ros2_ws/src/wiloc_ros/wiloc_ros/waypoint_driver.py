@@ -20,6 +20,11 @@ the robot is commanded forward but does not move for ``stuck_time`` seconds it
 backs up and replans; if it stays stuck for ``watchdog_time`` seconds it is
 teleported to the nearest patrol waypoint so a live demo can never stay wedged.
 
+People and vehicles (the venue's ``movers:``) have no collision in Gazebo, so the
+driver gives way instead: it slows down when one is ahead and stops while one
+is within ``yield_dist`` in front, for at most ``yield_max`` seconds (then it
+carries on, so a person who stops in a doorway cannot stall the demo).
+
 Topics
   pub  /cmd_vel               geometry_msgs/Twist
   pub  /wiloc/plan            nav_msgs/Path       current planned route (map frame)
@@ -59,6 +64,8 @@ class WaypointDriver(Node):
             ("stuck_time", 2.0),
             ("watchdog_time", 20.0),
             ("entity", "wiloc_bot"),
+            ("yield_dist", 0.9),
+            ("yield_max", 6.0),
         ):
             self.declare_parameter(name, default)
         gp = lambda n: self.get_parameter(n).value
@@ -73,6 +80,10 @@ class WaypointDriver(Node):
         self.stuck_time = float(gp("stuck_time"))
         self.watchdog_time = float(gp("watchdog_time"))
         self.entity = str(gp("entity"))
+        self.yield_dist = float(gp("yield_dist"))
+        self.yield_max = float(gp("yield_max"))
+        self.yield_since = None  # giving way to a mover since (sim time)
+        self.ignore_movers_until = 0.0
 
         self.pose = None
         self.t0 = None  # first tick once sim time (/clock) is running
@@ -206,6 +217,8 @@ class WaypointDriver(Node):
                 self.pub.publish(cmd)
                 return
         v, w, finished = self.follower.command(self.pose)
+        if v > 0:
+            v, w = self._give_way(t, v, w)
         if finished:
             if self.goal is not None:
                 self.get_logger().info("goal reached")
@@ -217,6 +230,31 @@ class WaypointDriver(Node):
         cmd.linear.x, cmd.angular.z = float(v), float(w)
         self.pub.publish(cmd)
         self._check_stuck(t, v)
+
+    def _give_way(self, t, v, w):
+        """Slow down for movers ahead; stop while one is close in front (bounded by ``yield_max``)."""
+        if not len(self.fp.movers) or t < self.ignore_movers_until:
+            self.yield_since = None
+            return v, w
+        x, y, th = self.pose
+        ahead = None
+        for mv, p in self.fp.movers.near((x, y), t, 2.0 * self.yield_dist):
+            dx, dy = p[0] - x, p[1] - y
+            bearing = np.arctan2(dy, dx) - th
+            if abs((bearing + np.pi) % (2 * np.pi) - np.pi) < np.radians(55):
+                d = float(np.hypot(dx, dy))
+                ahead = d if ahead is None else min(ahead, d)
+        if ahead is None:
+            self.yield_since = None
+            return v, w
+        if ahead > self.yield_dist:
+            return 0.5 * v, w  # someone ahead: slow down
+        self.yield_since = self.yield_since or t
+        if t - self.yield_since > self.yield_max:  # they are not moving out of the way: carry on
+            self.ignore_movers_until = t + 4.0
+            self.yield_since = None
+            return v, w
+        return 0.0, 0.0
 
     def _check_stuck(self, t, v):
         self.motion.append((t, self.pose[0], self.pose[1], v))
@@ -262,6 +300,8 @@ class WaypointDriver(Node):
             text = "manual (keyboard)"
         elif self.back_until is not None:
             text = "auto: stuck, backing up"
+        elif self.yield_since is not None:
+            text = "auto: giving way"
         elif self.goal is not None:
             text = f"auto: going to ({self.goal[0]:.1f}, {self.goal[1]:.1f})"
         elif self.hold_until is not None:

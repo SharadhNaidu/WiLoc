@@ -268,6 +268,36 @@ def validate_floorplan(fp: FloorPlan, grid: OccupancyGrid | None = None) -> list
     for name, (x0, y0, x1, y1) in fp.rooms:
         if x0 < 0 or y0 < 0 or x1 > fp.width or y1 > fp.height or x1 <= x0 or y1 <= y0:
             problems.append(f"room {name!r} has a bad rectangle")
+    problems += _mover_problems(fp)
+    return problems
+
+
+def _mover_problems(fp: FloorPlan, step: float = 0.1, clearance: float = 0.2) -> list[str]:
+    """Moving people and vehicles must not walk through walls or furniture (static ones may sit on chairs)."""
+    problems = []
+    obstacles = fp.obstacles
+    for mv in fp.movers.movers:
+        if mv.static:
+            x, y = mv.route[0]
+            if not (0 < x < fp.width and 0 < y < fp.height):
+                problems.append(f"mover {mv.id} is outside the building")
+            continue
+        path = mv.path
+        pts = np.vstack(
+            [np.linspace(a, b, max(2, int(np.ceil(np.hypot(*(b - a)) / step)) + 1)) for a, b in zip(path[:-1], path[1:])]
+        )
+        bad = ~fp.is_free(pts, clearance)
+        if len(obstacles):
+            inside = (
+                (pts[:, None, 0] > obstacles[None, :, 0])
+                & (pts[:, None, 0] < obstacles[None, :, 2])
+                & (pts[:, None, 1] > obstacles[None, :, 1])
+                & (pts[:, None, 1] < obstacles[None, :, 3])
+            ).any(axis=1)
+            bad |= inside
+        if bad.any():
+            x, y = pts[np.flatnonzero(bad)[0]]
+            problems.append(f"mover {mv.id} walks through a wall or furniture near ({x:.1f}, {y:.1f})")
     return problems
 
 
