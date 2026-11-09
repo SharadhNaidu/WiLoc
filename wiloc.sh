@@ -3,19 +3,22 @@
 #
 #   ./wiloc.sh setup          install missing packages (sudo apt) and build
 #   ./wiloc.sh build          build the ROS 2 workspace (~/wiloc_ws)
-#   ./wiloc.sh run [args]     start Gazebo + the WiLoc window (args go to ros2 launch)
-#   ./wiloc.sh run --software-gl ...   same, with software OpenGL (VMs without 3D acceleration)
-#   ./wiloc.sh stop           stop a running simulation
+#   ./wiloc.sh run [options]  open WiLoc Studio, the one-window demo (it starts the simulation)
+#   ./wiloc.sh demo           the same for the stand: auto tour when nobody touches it
+#   ./wiloc.sh check          pre-flight check for the stand: headless run, tracking and a kidnap (~2 min)
+#   ./wiloc.sh record [file]  record the backup video off screen (default results/wiloc_demo.mp4)
+#   ./wiloc.sh launch [args]  the bare simulation (ros2 launch; ui:=none for headless)
+#   ./wiloc.sh stop           stop everything (simulation and window)
 #   ./wiloc.sh test           run the unit tests
 #   ./wiloc.sh experiments    run the offline experiments (figures in ./results)
 #
 # Requires Ubuntu 22.04 with ROS 2 Humble (Gazebo 11 / gazebo_ros).
 #
-# Examples of launch arguments:
-#   ./wiloc.sh run method:=ekf             EKF instead of the particle filter
-#   ./wiloc.sh run drive:=true             start with the automatic patrol
-#   ./wiloc.sh run global_init:=true       unknown start pose
-#   ./wiloc.sh run rviz:=true              also open RViz
+# Studio options:
+#   --venue hospital --layout staggered    start in another venue / router preset
+#   --windowed                             a window instead of full screen
+#   --software-gl                          software OpenGL (VMs without 3D acceleration)
+#   --launch-arg method:=ekf               any simulation argument (repeatable), e.g. global_init:=true
 set -eo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,8 +44,8 @@ cmd_setup() {
     sudo apt-get install -y \
         ros-humble-gazebo-ros-pkgs ros-humble-xacro ros-humble-robot-state-publisher \
         ros-humble-rviz2 ros-humble-rqt-graph python3-colcon-common-extensions \
-        python3-numpy python3-scipy python3-matplotlib python3-yaml python3-pyqt5 python3-pytest x11-utils \
-        python3-pyqtgraph python3-opengl python3-pyqt5.qtopengl fonts-inter mesa-utils
+        python3-numpy python3-scipy python3-matplotlib python3-yaml python3-pyqt5 python3-pytest python3-opencv \
+        mesa-utils
     cmd_build
     say "setup done. Start the simulation with:  ./wiloc.sh run"
 }
@@ -56,8 +59,9 @@ cmd_build() {
 }
 
 cmd_stop() {
-    pkill -f "ros2 launch wiloc_ros" 2>/dev/null || true
-    pkill -f "lib/wiloc_ros/" 2>/dev/null || true
+    # anchored at the interpreter, so a shell whose command line merely mentions these paths survives
+    pkill -f "^[^ ]*python3 [^ ]*/ros2 launch wiloc_ros" 2>/dev/null || true
+    pkill -f "^[^ ]*python3 [^ ]*/lib/wiloc_ros/" 2>/dev/null || true  # the nodes and the Studio window
     pkill -x rviz2 2>/dev/null || true
     for _ in $(seq 20); do
         pgrep -x gzserver >/dev/null || pgrep -x gzclient >/dev/null || return 0
@@ -67,19 +71,52 @@ cmd_stop() {
     done
 }
 
-cmd_run() {
-    if [ "$1" = "--software-gl" ]; then
-        export LIBGL_ALWAYS_SOFTWARE=1
-        shift
-    fi
+prepare() {
+    # usage: prepare "$@"; then use "${ARGS[@]}" (--software-gl removed)
+    ARGS=()
+    for a in "$@"; do
+        if [ "$a" = "--software-gl" ]; then export LIBGL_ALWAYS_SOFTWARE=1; else ARGS+=("$a"); fi
+    done
     [ -f "$WS/install/setup.bash" ] || cmd_build
     cmd_stop  # a leftover Gazebo would make the new one fail to start
     source_ros
     # shellcheck disable=SC1091
     source "$WS/install/setup.bash"
-    say "starting Gazebo + WiLoc (Ctrl-C to stop)"
-    say "drive: click Gazebo's 3D view and hold the arrow keys, or use W/A/S/D in the WiLoc window"
-    exec ros2 launch wiloc_ros sim.launch.py drive:=false "$@"
+}
+
+cmd_run() {
+    prepare "$@"
+    say "starting WiLoc Studio: F11 full screen / window, Ctrl+Shift+Q quits"
+    exec ros2 run wiloc_ros studio "${ARGS[@]}"
+}
+
+cmd_demo() {
+    prepare "$@"
+    say "starting WiLoc Studio for the stand: auto tour after 90 s without a visitor (Ctrl+Shift+A toggles)"
+    exec ros2 run wiloc_ros studio --attract "${ARGS[@]}"
+}
+
+# The backup video: tour, kidnap and recovery, click-to-go, unplug a router, another venue.
+RECORD_SCRIPT="30:view=follow;55:kidnap;95:view=overview;105:goal=17,9.5;140:unplug;170:unplug;180:venue=hospital;245:kidnap;290:layout=staggered;335:quit"
+
+cmd_record() {
+    local out="${1:-$REPO/results/wiloc_demo.mp4}"
+    [ $# -gt 0 ] && shift
+    prepare "$@"
+    say "recording the demo off screen to $out (about 6 minutes)"
+    QT_QPA_PLATFORM=offscreen WILOC_STUDIO_SCRIPT="$RECORD_SCRIPT" \
+        ros2 run wiloc_ros studio --size 1920x1080 --record "$out" "${ARGS[@]}"
+}
+
+cmd_check() {
+    prepare "$@"
+    say "pre-flight check (headless, about 2 minutes)"
+    ros2 run wiloc_ros check "${ARGS[@]}"
+}
+
+cmd_launch() {
+    prepare "$@"
+    exec ros2 launch wiloc_ros sim.launch.py "${ARGS[@]}"
 }
 
 cmd_test() {
@@ -96,8 +133,12 @@ case "${1:-help}" in
     setup) cmd_setup ;;
     build) cmd_build ;;
     run) shift; cmd_run "$@" ;;
+    demo) shift; cmd_demo "$@" ;;
+    record) shift; cmd_record "$@" ;;
+    check) shift; cmd_check "$@" ;;
+    launch) shift; cmd_launch "$@" ;;
     stop) cmd_stop; say "stopped" ;;
     test) cmd_test ;;
     experiments) shift; cmd_experiments "$@" ;;
-    *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

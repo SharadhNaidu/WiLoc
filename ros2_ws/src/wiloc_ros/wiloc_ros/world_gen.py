@@ -467,8 +467,6 @@ def world_sdf(fp: FloorPlan, camera: bool = True) -> str:
       <real_time_factor>1.0</real_time_factor>
       <real_time_update_rate>250</real_time_update_rate>
     </physics>
-    <!-- keys pressed in the Gazebo window -> /wiloc/gazebo_keys (driving from Gazebo) -->
-    <plugin name="wiloc_key_forwarder" filename="libwiloc_key_forwarder.so"/>
     <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
       <ros><namespace>/gazebo</namespace></ros>
       <update_rate>1.0</update_rate>
@@ -479,7 +477,6 @@ def world_sdf(fp: FloorPlan, camera: bool = True) -> str:
       <shadows>false</shadows>
     </scene>
     <gui>
-      <plugin name="keyboard" filename="libKeyboardGUIPlugin.so"/>
       <camera name="user_camera">
         <pose>{cx:.2f} {cy - 10.5:.2f} 17.5 0 0.98 1.5708</pose>
       </camera>

@@ -22,12 +22,12 @@
   <exec_depend>gazebo_plugins</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>gazebo_msgs</exec_depend>
-  <exec_depend>wiloc_gazebo</exec_depend>
   <exec_depend>tf2_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>rqt_graph</exec_depend>
   <exec_depend>python3-pyqt5</exec_depend>
   <exec_depend>python3-matplotlib</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

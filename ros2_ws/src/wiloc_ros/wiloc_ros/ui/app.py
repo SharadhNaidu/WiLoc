@@ -41,6 +41,7 @@ from . import style as S
 from .backend import Backend
 from .bridge import Bridge
 from .map_view import MapView
+from .recorder import Recorder
 from .panels import Card, CameraView, ChipRow, Header, Leaderboard, Overlay, Pill, RaceChart, Toast
 
 TELEOP_KEYS = {
@@ -97,6 +98,7 @@ class Studio(QtWidgets.QWidget):
         self.ready = False
         self.body_on = True
         self.manual = False
+        self.recorder = None  # --record
 
         # ---- widgets
         self.header = Header()
@@ -402,7 +404,8 @@ class Studio(QtWidgets.QWidget):
         self.map_card.right_text = "click to send the robot"
         if snap.errors and st is not None:
             self.leaderboard.medians = snap.errors.get("median") or {}
-            self.leaderboard.leader = snap.errors.get("leader")
+            racers = {m: v for m, v in self.leaderboard.medians.items() if m in ("pf", "ekf", "wknn") and v is not None}
+            self.leaderboard.leader = min(racers, key=racers.get) if racers else None  # wheels-only is the baseline
             k = snap.errors.get("kidnaps", 0)
             if self.last_kidnaps is not None and k > self.last_kidnaps:
                 self.chart.mark_kidnap(time.monotonic())
@@ -473,6 +476,10 @@ class Studio(QtWidgets.QWidget):
             threading.Thread(target=self.backend.restart, daemon=True).start()
 
     def closeEvent(self, e):
+        if self.recorder is not None:
+            rec, self.recorder = self.recorder, None
+            path = rec.stop()
+            print(f"[studio] video: {path} ({rec.written} frames, {rec.dropped} dropped)", flush=True)
         self.overlay.show_message("Stopping…")
         QtWidgets.QApplication.processEvents()
         self.backend.stop()
@@ -526,6 +533,8 @@ def main(argv=None):
     p.add_argument("--size", default="", help="window size WxH (default: full screen)")
     p.add_argument("--windowed", action="store_true", help="a normal window instead of full screen")
     p.add_argument("--launch-arg", action="append", default=[], help="extra sim.launch.py argument (repeatable)")
+    p.add_argument("--record", default="", help="record the window to this video file (.mp4)")
+    p.add_argument("--record-fps", type=float, default=15.0)
     p.add_argument("--attract", action="store_true", help="unattended tour after 90 s without a visitor (Ctrl+Shift+A)")
     p.add_argument("--no-overlay", action="store_true", help=argparse.SUPPRESS)  # layout reviews without a simulation
     a, _ = p.parse_known_args(argv if argv is not None else sys.argv[1:])
@@ -576,6 +585,9 @@ def main(argv=None):
             win.grab().save(os.path.join(snap_dir, f"studio_{counter['i']:03d}.png"))
 
         QtCore.QTimer(win, timeout=snapshot, interval=int(1000 * float(os.environ.get("WILOC_SNAPSHOT_EVERY", 10)))).start()
+    if a.record:
+        win.recorder = Recorder(win, os.path.expanduser(a.record), fps=a.record_fps)
+        win.recorder.start()
     if os.environ.get("WILOC_STUDIO_SCRIPT"):
         _run_script(app, win, os.environ["WILOC_STUDIO_SCRIPT"])
 

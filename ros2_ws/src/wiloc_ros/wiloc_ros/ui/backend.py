@@ -39,7 +39,7 @@ class Backend:
         os.makedirs(LOG_DIR, exist_ok=True)
         cmd = [
             "ros2", "launch", "wiloc_ros", "sim.launch.py",
-            "ui:=none", "gui:=false", "rviz:=false", "dashboard:=false", "tile_windows:=false",
+            "ui:=none", "gui:=false", "rviz:=false",
             f"floorplan:={venue}", f"ap_layout:={layout}",
             *self.launch_args,
         ]

@@ -1,27 +1,23 @@
-"""WiLoc full simulation: Gazebo world + diff-drive robot + Wi-Fi + localisation.
+"""WiLoc simulation: Gazebo world + diff-drive robot + Wi-Fi + localisation.
 
-    ros2 launch wiloc_ros sim.launch.py                    # Gazebo + WiLoc window, particle filter
-    ros2 launch wiloc_ros sim.launch.py rviz:=true         # also open RViz
-    ros2 launch wiloc_ros sim.launch.py method:=ekf
-    ros2 launch wiloc_ros sim.launch.py global_init:=true  # kidnapped / unknown start
-    ros2 launch wiloc_ros sim.launch.py drive:=false       # start in manual (keyboard) mode
-    ros2 launch wiloc_ros sim.launch.py gui:=false rviz:=false dashboard:=false   # headless benchmark
+Normally the WiLoc Studio window starts this itself (``./wiloc.sh run``, or
+``ros2 run wiloc_ros studio``) and restarts it to switch venues.  Directly:
 
-With ``tile_windows:=true`` (default) the windows fill the screen: Gazebo on
-the left (drive the robot there or in the WiLoc window), the WiLoc window with
-all analytics in tabs on the right.
+    ros2 launch wiloc_ros sim.launch.py                       # simulation + Studio window (this venue only)
+    ros2 launch wiloc_ros sim.launch.py floorplan:=hospital ap_layout:=staggered
+    ros2 launch wiloc_ros sim.launch.py ui:=none              # headless (benchmarks, checks)
+    ros2 launch wiloc_ros sim.launch.py gui:=true rviz:=true  # also Gazebo's own window and RViz
+    ros2 launch wiloc_ros sim.launch.py method:=ekf global_init:=true
 """
 
 import configparser
 import os
 import re
-import subprocess
 import tempfile
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    AppendEnvironmentVariable,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     OpaqueFunction,
@@ -35,49 +31,12 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-def _screen_size():
-    """X screen size in pixels, or None if it cannot be determined."""
-    try:
-        out = subprocess.run(["xdpyinfo"], capture_output=True, text=True, timeout=3).stdout
-        w, h = re.search(r"dimensions:\s+(\d+)x(\d+)", out).groups()
-        return int(w), int(h)
-    except Exception:
-        return None
-
-
-def _font_dpi(requested: str, screen) -> str:
-    """Qt font DPI for gzclient / RViz / dashboard.
-
-    WSLg (and some X servers) report 96 DPI even on high-resolution laptop
-    panels, so the Qt UIs render with unreadably small text.  "auto" picks
-    144 DPI (150 %) when the X screen is at least 2400 px wide.  Only fonts are
-    scaled: QT_SCALE_FACTOR would also scale gzclient's OpenGL viewport, which
-    Gazebo classic does not handle.
-    """
-    if requested != "auto":
-        return requested
-    return "144" if screen and screen[0] >= 2400 else "96"
-
-
-def _layout(screen):
-    """Window rectangles (x, y, w, h): Gazebo on the left, the WiLoc window
-    (all analytics in tabs) on the right; optional RViz shares the right side."""
-    sw, sh = screen or (1920, 1080)
-    usable_h = sh - int(sh * 0.06)  # leave room for the Windows / desktop taskbar
-    gz_w = int(sw * 0.42)
-    return {
-        "gazebo": (0, 0, gz_w, usable_h),
-        "dashboard": (gz_w, 0, sw - gz_w, usable_h),
-        "rviz": (gz_w, 0, sw - gz_w, usable_h),
-    }
-
-
 def _write_gzclient_geometry(rect=None, min_w=400, min_h=300):
-    """Set gzclient's window geometry in ~/.gazebo/gui.ini.
+    """Give gzclient a sensible window size in ~/.gazebo/gui.ini.
 
-    With ``rect`` the geometry is forced (window tiling).  Without it a default
-    size is only written when none is stored yet: on a first run under WSLg
-    the file has no width/height and the window opens as a thin strip.
+    A size is only written when none is stored yet (or ``rect`` forces one):
+    on a first run under WSLg the file has no width/height and the window
+    opens as a thin strip.
     """
     path = os.path.expanduser("~/.gazebo/gui.ini")
     cfg = configparser.ConfigParser()
@@ -133,16 +92,12 @@ def _setup(context):
     with open(world_path, "w") as f:
         f.write(world_sdf(fp))
 
-    screen = _screen_size()
-    tile = is_true("tile_windows")
-    layout = _layout(screen)
     if is_true("gui"):
-        _write_gzclient_geometry(layout["gazebo"] if tile else None)
+        _write_gzclient_geometry()
 
     share = get_package_share_directory("wiloc_ros")
     xacro_file = os.path.join(share, "urdf", "wiloc_bot.urdf.xacro")
-    rviz_rect = layout["rviz"] if tile else (60, 60, 1500, 900)
-    rviz_cfg = _rviz_config(os.path.join(share, "rviz", "wiloc.rviz"), fp, rviz_rect, panel=is_true("rviz_panel"))
+    rviz_cfg = _rviz_config(os.path.join(share, "rviz", "wiloc.rviz"), fp, (60, 60, 1500, 900), panel=is_true("rviz_panel"))
     gazebo_launch = os.path.join(get_package_share_directory("gazebo_ros"), "launch", "gazebo.launch.py")
     sim_time = {"use_sim_time": True}
     common = {"floorplan": floorplan, "ap_layout": fp.layout, **sim_time}
@@ -150,7 +105,6 @@ def _setup(context):
     qss_path = os.path.join(tempfile.gettempdir(), "wiloc_theme.qss")
     with open(qss_path, "w") as f:
         f.write(QSS)
-    dash_env = {"WILOC_DASHBOARD_GEOMETRY": ",".join(str(v) for v in layout["dashboard"])} if tile else {}
     # Radio overrides for every node that simulates or models Wi-Fi (empty
     # launch argument: the venue's ``radio:`` value, see common.radio_config).
     radio = {
@@ -162,7 +116,6 @@ def _setup(context):
     # globally, see localization_node); a live demo must not need a restart.
     respawn = {"respawn": True, "respawn_delay": 2.0}
     env = [
-        SetEnvironmentVariable("QT_FONT_DPI", _font_dpi(lc("ui_font_dpi"), screen)),
         # Never reach out to the online model database: venues may be offline,
         # and with no network Gazebo would stall for a long timeout first.
         SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
@@ -172,8 +125,6 @@ def _setup(context):
         env.append(SetEnvironmentVariable("ROS_LOCALHOST_ONLY", "1"))
 
     return env + [
-        # WiLoc's Gazebo plugin (key forwarding for driving from the Gazebo window)
-        AppendEnvironmentVariable("GAZEBO_PLUGIN_PATH", os.path.join(get_package_prefix("wiloc_gazebo"), "lib")),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(gazebo_launch),
             launch_arguments={"world": world_path, "gui": lc("gui"), "verbose": "false"}.items(),
@@ -261,14 +212,6 @@ def _setup(context):
             parameters=[sim_time],
             condition=IfCondition(lc("rviz")),
         ),
-        Node(
-            package="wiloc_ros",
-            executable="dashboard",
-            parameters=[{**common, **radio, "mode": "auto" if is_true("drive") else "manual"}],
-            additional_env=dash_env,
-            output="screen",
-            condition=IfCondition(str(is_true("dashboard") and lc("ui") == "dashboard")),
-        ),
         # The Studio normally starts the simulation itself (ros2 run wiloc_ros studio);
         # ui:=studio runs it inside this launch instead, attached to this simulation.
         Node(
@@ -286,14 +229,11 @@ def generate_launch_description():
     args = [
         ("floorplan", "office", "venue: office | home | hospital | warehouse | library | factory, or a YAML file"),
         ("ap_layout", "", "router preset of the venue (empty: as installed); switch live on /wiloc/ap_layout"),
-        ("ui", "dashboard", "window: dashboard (old) | studio (one-window demo) | none (headless)"),
-        ("gui", "true", "start the Gazebo client"),
-        ("rviz", "false", "also start RViz (the WiLoc window already shows the live map)"),
+        ("ui", "studio", "window: studio (attached to this simulation) | none (headless)"),
+        ("gui", "false", "also open Gazebo's own window (the Studio already shows the 3-D view)"),
+        ("rviz", "false", "also start RViz"),
         ("rviz_panel", "false", "show RViz's Displays panel"),
-        ("dashboard", "true", "start the WiLoc dashboard (keyboard control, live plots, node graph)"),
         ("rqt_graph", "false", "also open rqt_graph (ROS's own node graph)"),
-        ("tile_windows", "true", "arrange Gazebo / RViz / dashboard to fill the screen"),
-        ("ui_font_dpi", "auto", "Qt font DPI for Gazebo/RViz text (auto: 144 on >=2400 px wide screens, else 96)"),
         ("method", "pf", "primary method: pf | ekf | wknn (all three always run, for the live race)"),
         ("n_particles", "1500", "particle count when kld:=false"),
         ("kld", "true", "adapt the particle count (KLD sampling, 500-5000)"),

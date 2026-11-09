@@ -393,8 +393,8 @@ class CameraView(QtWidgets.QWidget):
     def _ray_legend(self, p, r):
         p.setFont(S.font(12))
         txt = "Wi-Fi lines: thick = loud · dashed = through a wall · faded = blocked by a person"
-        fm = QtGui.QFontMetrics(p.font())
-        w = min(r.width() - S.px(24), fm.horizontalAdvance(txt) + S.px(24))
+        fm = p.fontMetrics()  # the painting device's metrics, not the screen's
+        w = min(r.width() - S.px(24), fm.horizontalAdvance(txt) + S.px(28))
         box = QtCore.QRectF(S.px(12), r.bottom() - S.px(38), w, S.px(26))
         p.setPen(QtCore.Qt.NoPen)
         p.setBrush(S.qcolor(S.CARD, 0.88))
