@@ -11,10 +11,11 @@ publishes, for every scan, the robot->AP radio links (coloured by RSSI and
 labelled with dBm and walls crossed), a scan "pulse", and a JSON breakdown of
 how each reading was formed (path loss, wall loss, shadowing, noise).
 
-Note: ``radio_seed`` and the noise parameters define the "real" radio world.
-If you change them, the localiser's radio map must come from a survey of the
-same world (same ``radio_seed``; a ``radio_map`` file surveyed with matching
-settings), otherwise the fingerprints describe a different building.
+The "real" radio world comes from the venue's ``radio:`` section
+(``common.radio_config``); ``radio_seed`` / ``shadowing_sigma_db`` /
+``temporal_sigma_db`` override it (negative: keep the venue value).  The
+localiser builds its radio map from the same config.  Only a ``radio_map``
+file given to the localiser can describe a different world.
 
 Topics
   sub  /ground_truth            nav_msgs/Odometry
@@ -40,11 +41,11 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import ColorRGBA, Int32, String
 from visualization_msgs.msg import Marker, MarkerArray
 
-from wiloc.radio import RadioConfig, RadioSimulator
+from wiloc.radio import RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, run_node
+from .common import load_floorplan, radio_config, run_node
 
 HEAT_LO, HEAT_HI = -85.0, -25.0  # dBm range of the heat-map / link colour ramp
 
@@ -70,18 +71,11 @@ class WifiSensorNode(Node):
     def __init__(self):
         super().__init__("wifi_sensor")
         self.declare_parameter("floorplan", "office")
-        self.declare_parameter("radio_seed", 7)
         self.declare_parameter("scan_rate", 2.0)
-        self.declare_parameter("temporal_sigma_db", 3.0)
-        self.declare_parameter("shadowing_sigma_db", 5.0)
         self.declare_parameter("noise_seed", 0)
         gp = lambda n: self.get_parameter(n).value
         self.fp = load_floorplan(gp("floorplan"))
-        cfg = RadioConfig(
-            seed=int(gp("radio_seed")),
-            temporal_sigma_db=float(gp("temporal_sigma_db")),
-            shadowing_sigma_db=float(gp("shadowing_sigma_db")),
-        )
+        cfg = radio_config(self, self.fp)
         self.sim = RadioSimulator(self.fp, cfg)
         self.rng = np.random.default_rng(int(gp("noise_seed")))
         self.pose = None

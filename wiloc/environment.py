@@ -60,6 +60,7 @@ class FloorPlan:
     wall_thickness: float = 0.15
     waypoints: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     start_pose: tuple[float, float, float] = (1.0, 6.0, 0.0)
+    radio: dict = field(default_factory=dict)  # RadioConfig settings for this venue (``radio:``)
 
     # ------------------------------------------------------------------ io
     @classmethod
@@ -83,6 +84,7 @@ class FloorPlan:
             wall_thickness=float(d.get("wall_thickness", 0.15)),
             waypoints=np.array(d.get("waypoints", []), dtype=float).reshape(-1, 2),
             start_pose=tuple(float(v) for v in d.get("start_pose", (1.0, 6.0, 0.0))),
+            radio=dict(d.get("radio") or {}),
         )
 
     @classmethod
@@ -96,6 +98,11 @@ class FloorPlan:
         ref = resources.files("wiloc") / "data" / f"{name}.yaml"
         with ref.open("r", encoding="utf-8") as f:
             return cls.from_dict(yaml.safe_load(f))
+
+    @staticmethod
+    def builtin_names() -> list[str]:
+        """Names of the floor plans shipped in ``wiloc/data``."""
+        return sorted(p.name[: -len(".yaml")] for p in (resources.files("wiloc") / "data").iterdir() if p.name.endswith(".yaml"))
 
     # ------------------------------------------------------------ queries
     @property

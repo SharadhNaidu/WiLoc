@@ -21,6 +21,9 @@ set -eo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS="${WILOC_WS:-$HOME/wiloc_ws}"
 ROS_SETUP=/opt/ros/humble/setup.bash
+# The simulation keeps ROS 2 traffic on this machine (launch arg localhost_only);
+# so must every ros2 command run from here, or it would not see the topics.
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
 
 say() { printf '\033[1;34m[wiloc]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[wiloc]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -38,7 +41,8 @@ cmd_setup() {
     sudo apt-get install -y \
         ros-humble-gazebo-ros-pkgs ros-humble-xacro ros-humble-robot-state-publisher \
         ros-humble-rviz2 ros-humble-rqt-graph python3-colcon-common-extensions \
-        python3-numpy python3-scipy python3-matplotlib python3-yaml python3-pyqt5 python3-pytest x11-utils
+        python3-numpy python3-scipy python3-matplotlib python3-yaml python3-pyqt5 python3-pytest x11-utils \
+        python3-pyqtgraph python3-opengl python3-pyqt5.qtopengl fonts-inter mesa-utils
     cmd_build
     say "setup done. Start the simulation with:  ./wiloc.sh run"
 }
@@ -47,6 +51,8 @@ cmd_build() {
     source_ros
     say "building workspace in $WS"
     WILOC_WS="$WS" bash "$REPO/scripts/build_ws.sh"
+    say "preparing radio maps (cached, so the simulation starts fast)"
+    (cd "$REPO" && PYTHONPATH="$REPO" python3 -m wiloc warm-cache)
 }
 
 cmd_stop() {

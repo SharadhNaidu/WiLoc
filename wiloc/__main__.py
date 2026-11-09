@@ -4,6 +4,7 @@
     python -m wiloc survey  [--floorplan F] [--spacing S] [--samples N] --map out.npz
     python -m wiloc locate  --map out.npz --rssi "-45,-70,nan,..."
     python -m wiloc plot-eval ~/.ros/wiloc_eval.csv --out results/gazebo_run.png
+    python -m wiloc warm-cache                          build the localiser's radio maps for every venue
 """
 
 from __future__ import annotations
@@ -47,7 +48,20 @@ def main(argv=None):
     pe.add_argument("--floorplan")
     pe.add_argument("--out", default="results/gazebo_run.png")
 
+    sub.add_parser("warm-cache", help="pre-build the cached radio maps the ROS localiser uses")
+
     args = p.parse_args(argv)
+    if args.cmd == "warm-cache":
+        import time
+
+        from .cache import cache_dir, cached_maps
+
+        for name in FloorPlan.builtin_names():
+            fp = FloorPlan.builtin(name)
+            t0 = time.monotonic()
+            _, _, hit = cached_maps(fp, RadioConfig.from_dict(fp.radio))
+            print(f"{name:12s} {'cached' if hit else 'built'} in {time.monotonic() - t0:.1f} s -> {cache_dir()}")
+        return
     if args.cmd == "plot-eval":
         from .experiments import plot_eval_csv
 

@@ -22,7 +22,7 @@ survey can learn it, but it cannot be predicted from geometry alone.
 from __future__ import annotations
 
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 
@@ -44,6 +44,21 @@ class RadioConfig:
     quantize: bool = True
     field_resolution_m: float = 0.25
     seed: int = 7
+
+    @classmethod
+    def from_dict(cls, d: dict | None, **overrides) -> "RadioConfig":
+        """Config from a venue's ``radio:`` section; ``overrides`` that are not None win.
+
+        Unknown keys raise, so a typo in a venue file cannot silently fall back
+        to a default (and make the sensor and the localiser disagree).
+        """
+        merged = {**(d or {}), **{k: v for k, v in overrides.items() if v is not None}}
+        known = set(cls.__dataclass_fields__)
+        unknown = sorted(set(merged) - known)
+        if unknown:
+            raise ValueError(f"unknown radio settings {unknown}; known: {sorted(known)}")
+        types = {f.name: type(f.default) for f in fields(cls)}
+        return cls(**{k: types[k](v) for k, v in merged.items()})
 
     @property
     def pl_d0(self) -> float:

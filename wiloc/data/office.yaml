@@ -16,6 +16,16 @@ height: 12.0
 wall_height: 2.5
 wall_thickness: 0.15
 
+# Radio environment (wiloc.radio.RadioConfig).  The Wi-Fi sensor and the
+# localiser's survey both read this, so they always simulate the same world.
+radio:
+  seed: 7                   # shadowing field
+  path_loss_exponent: 2.0
+  shadowing_sigma_db: 5.0
+  shadowing_corr_m: 3.0
+  temporal_sigma_db: 3.0
+  sensitivity_dbm: -95.0
+
 materials:
   concrete: 12.0
   brick: 7.0

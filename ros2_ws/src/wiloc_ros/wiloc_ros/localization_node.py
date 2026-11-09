@@ -2,7 +2,8 @@
 
 On start-up the node loads a radio map (``radio_map`` .npz from
 ``python -m wiloc survey``) or, if none is given, performs the simulated site
-survey itself.  It then fuses ``/wheel_odom`` with ``/wifi/scan`` using
+survey of the venue's radio world itself (cached on disk by ``wiloc.cache``,
+so later starts take well under a second).  It then fuses ``/wheel_odom`` with ``/wifi/scan`` using
 
     method = "pf"    particle filter (default)
              "ekf"   EKF with WKNN position fixes
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 
 import numpy as np
 from geometry_msgs.msg import Pose, PoseArray, PoseStamped, PoseWithCovarianceStamped, TransformStamped
@@ -42,11 +44,11 @@ from wiloc.filters import ParticleFilter, WifiEKF
 from wiloc.fingerprint import DenseRadioMap, RadioMap
 from wiloc.geometry import wrap_angle
 from wiloc.motion import OdometryMotionModel, odom_delta
-from wiloc.radio import RadioConfig, RadioSimulator
+from wiloc.cache import cached_maps
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, run_node, yaw_to_quat
+from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, radio_config, run_node, yaw_to_quat
 
 
 class LocalizationNode(Node):
@@ -58,7 +60,8 @@ class LocalizationNode(Node):
             "n_particles": 1500,
             "global_init": False,
             "radio_map": "",
-            "radio_seed": 7,
+            "map_cache": True,
+            "respawn_global_after": 30.0,
             "survey_spacing": 1.0,
             "survey_samples": 20,
             "map_method": "gp",
@@ -81,8 +84,8 @@ class LocalizationNode(Node):
 
         self.fp = load_floorplan(gp("floorplan"))
         self.method = gp("method")
-        self.rmap = self._load_or_survey(gp("radio_map"), int(gp("radio_seed")), gp("survey_spacing"), gp("survey_samples"))
-        self.dense = DenseRadioMap.from_radio_map(self.rmap, self.fp, method=gp("map_method"))
+        self.radio_cfg = radio_config(self, self.fp)
+        self.rmap, self.dense = self._radio_maps(gp)
         self.fix_est = KNN(int(gp("knn_k")), weighted=True).fit(self.rmap)
         mm = OdometryMotionModel(gp("alpha1"), gp("alpha2"), gp("alpha3"), gp("alpha4"))
         self.pf = ParticleFilter(
@@ -90,6 +93,11 @@ class LocalizationNode(Node):
         )
         self.ekf = WifiEKF(mm)
         self.global_init = bool(gp("global_init"))
+        # A localiser that starts long after the simulation did was respawned
+        # after a crash: the robot has moved since, so it must not trust the
+        # start pose (checked on the first scan, once sim time is known).
+        self.respawn_global_after = float(gp("respawn_global_after"))
+        self.start_checked = False
 
         # The diff-drive plugin's odometry starts at the odom-frame origin when
         # the robot is spawned at ``start_pose``; using that origin (instead of
@@ -122,13 +130,21 @@ class LocalizationNode(Node):
         )
 
     # ---------------------------------------------------------- setup
-    def _load_or_survey(self, path, seed, spacing, samples) -> RadioMap:
+    def _radio_maps(self, gp):
+        """Fingerprints and the dense GP map: from a file, the cache, or a fresh survey."""
+        t0 = time.monotonic()
+        path, method = gp("radio_map"), gp("map_method")
         if path:
             self.get_logger().info(f"loading radio map {path}")
-            return RadioMap.load(path)
-        self.get_logger().info(f"no radio_map given: running simulated site survey ({spacing} m grid, {samples} scans/RP)")
-        sim = RadioSimulator(self.fp, RadioConfig(seed=seed))
-        return RadioMap.survey(sim, self.fp.grid(float(spacing)), int(samples), np.random.default_rng(123))
+            rmap = RadioMap.load(path)
+            return rmap, DenseRadioMap.from_radio_map(rmap, self.fp, method=method)
+        spacing, samples = float(gp("survey_spacing")), int(gp("survey_samples"))
+        rmap, dense, hit = cached_maps(
+            self.fp, self.radio_cfg, spacing=spacing, samples=samples, map_method=method, use_cache=bool(gp("map_cache"))
+        )
+        how = "loaded from cache" if hit else f"simulated site survey ({spacing} m grid, {samples} scans/RP)"
+        self.get_logger().info(f"radio map {how} in {time.monotonic() - t0:.1f} s")
+        return rmap, dense
 
     def reset(self, pose, global_init=False, odom_yaw=None):
         if global_init:
@@ -190,6 +206,12 @@ class LocalizationNode(Node):
         return np.array([msg.rssi_dbm[index[ap]] if ap in index else np.nan for ap in self.rmap.ap_ids], dtype=float)
 
     def on_scan(self, msg: RssiScan):
+        if not self.start_checked:
+            self.start_checked = True
+            t = self.get_clock().now().nanoseconds * 1e-9
+            if not self.global_init and t > self.respawn_global_after:
+                self.get_logger().warn(f"started at sim time {t:.0f} s (respawned?): localising globally")
+                self.reset(np.array(self.fp.start_pose, dtype=float), global_init=True)
         z = self._scan_to_map_order(msg)
         if z is None:
             self.counts["ignored"] += 1

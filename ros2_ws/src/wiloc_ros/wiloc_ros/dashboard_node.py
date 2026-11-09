@@ -46,11 +46,11 @@ from std_msgs.msg import Int32, String
 from std_srvs.srv import Empty
 from tf2_msgs.msg import TFMessage
 
-from wiloc.radio import RadioConfig, RadioSimulator
+from wiloc.radio import RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, yaw_to_quat
+from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, radio_config, yaw_to_quat
 
 import matplotlib  # noqa: E402
 
@@ -154,12 +154,11 @@ class DashboardNode(Node):
     def __init__(self):
         super().__init__("wiloc_dashboard")
         self.declare_parameter("floorplan", "office")
-        self.declare_parameter("radio_seed", 7)
         self.declare_parameter("v_max", 0.22)
         self.declare_parameter("w_max", 1.2)
         self.declare_parameter("mode", "auto")
         self.fp = load_floorplan(self.get_parameter("floorplan").value)
-        self.radio_seed = int(self.get_parameter("radio_seed").value)
+        self.radio_cfg = radio_config(self, self.fp)
         self.v_max = float(self.get_parameter("v_max").value)
         self.w_max = float(self.get_parameter("w_max").value)
         self.start = np.array(self.fp.start_pose, dtype=float)
@@ -449,7 +448,7 @@ class Dashboard(QtWidgets.QMainWindow):
 
     def _prepare_heat(self, res=0.2):
         fp = self.node.fp
-        sim = RadioSimulator(fp, RadioConfig(seed=self.node.radio_seed))
+        sim = RadioSimulator(fp, self.node.radio_cfg)
         nx, ny = int(round(fp.width / res)), int(round(fp.height / res))
         gx, gy = np.meshgrid((np.arange(nx) + 0.5) * res, (np.arange(ny) + 0.5) * res)
         self.heat_rssi = sim.mean_rssi(np.column_stack([gx.ravel(), gy.ravel()])).reshape(ny, nx, -1)

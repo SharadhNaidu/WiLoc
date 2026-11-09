@@ -151,9 +151,27 @@ def _setup(context):
     with open(qss_path, "w") as f:
         f.write(QSS)
     dash_env = {"WILOC_DASHBOARD_GEOMETRY": ",".join(str(v) for v in layout["dashboard"])} if tile else {}
-
-    return [
+    # Radio overrides for every node that simulates or models Wi-Fi (empty
+    # launch argument: the venue's ``radio:`` value, see common.radio_config).
+    radio = {
+        "radio_seed": int(lc("radio_seed") or -1),
+        "shadowing_sigma_db": float(lc("shadowing_sigma_db") or -1.0),
+        "temporal_sigma_db": float(lc("temporal_sigma_db") or -1.0),
+    }
+    # A crashed node comes back by itself (a respawned localiser re-localises
+    # globally, see localization_node); a live demo must not need a restart.
+    respawn = {"respawn": True, "respawn_delay": 2.0}
+    env = [
         SetEnvironmentVariable("QT_FONT_DPI", _font_dpi(lc("ui_font_dpi"), screen)),
+        # Never reach out to the online model database: venues may be offline,
+        # and with no network Gazebo would stall for a long timeout first.
+        SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
+    ]
+    if is_true("localhost_only"):
+        # Ignore other ROS 2 users on the same network (another stand, a lab).
+        env.append(SetEnvironmentVariable("ROS_LOCALHOST_ONLY", "1"))
+
+    return env + [
         # WiLoc's Gazebo plugin (key forwarding for driving from the Gazebo window)
         AppendEnvironmentVariable("GAZEBO_PLUGIN_PATH", os.path.join(get_package_prefix("wiloc_gazebo"), "lib")),
         IncludeLaunchDescription(
@@ -174,13 +192,15 @@ def _setup(context):
         Node(
             package="wiloc_ros",
             executable="wifi_sensor",
-            parameters=[{**common, "radio_seed": int(lc("radio_seed")), "scan_rate": float(lc("scan_rate"))}],
+            parameters=[{**common, **radio, "scan_rate": float(lc("scan_rate"))}],
             output="screen",
+            **respawn,
         ),
         Node(
             package="wiloc_ros",
             executable="odom_noise",
             parameters=[{**sim_time, "rot_bias": float(lc("odom_rot_bias")), "trans_bias": float(lc("odom_trans_bias"))}],
+            **respawn,
         ),
         Node(
             package="wiloc_ros",
@@ -192,12 +212,19 @@ def _setup(context):
                     "n_particles": int(lc("n_particles")),
                     "global_init": is_true("global_init"),
                     "radio_map": lc("radio_map"),
-                    "radio_seed": int(lc("radio_seed")),
+                    **radio,
                 }
             ],
             output="screen",
+            **respawn,
         ),
-        Node(package="wiloc_ros", executable="evaluator", parameters=[{**common, "output_csv": lc("output_csv")}], output="screen"),
+        Node(
+            package="wiloc_ros",
+            executable="evaluator",
+            parameters=[{**common, "output_csv": lc("output_csv")}],
+            output="screen",
+            **respawn,
+        ),
         TimerAction(
             period=5.0,
             actions=[
@@ -213,6 +240,7 @@ def _setup(context):
                         }
                     ],
                     output="screen",
+                    **respawn,
                 )
             ],
         ),
@@ -226,7 +254,7 @@ def _setup(context):
         Node(
             package="wiloc_ros",
             executable="dashboard",
-            parameters=[{**common, "mode": "auto" if is_true("drive") else "manual", "radio_seed": int(lc("radio_seed"))}],
+            parameters=[{**common, **radio, "mode": "auto" if is_true("drive") else "manual"}],
             additional_env=dash_env,
             output="screen",
             condition=IfCondition(lc("dashboard")),
@@ -249,7 +277,10 @@ def generate_launch_description():
         ("n_particles", "1500", "particle count"),
         ("global_init", "false", "start with no knowledge of the initial pose"),
         ("radio_map", "", "radio map .npz (empty: survey at start-up)"),
-        ("radio_seed", "7", "seed of the radio environment (shadowing field)"),
+        ("radio_seed", "", "seed of the radio environment (shadowing field); empty: the venue's"),
+        ("shadowing_sigma_db", "", "shadowing std-dev in dB; empty: the venue's"),
+        ("temporal_sigma_db", "", "scan-to-scan RSSI noise std-dev in dB; empty: the venue's"),
+        ("localhost_only", "true", "keep ROS 2 traffic on this machine (ROS_LOCALHOST_ONLY=1)"),
         ("scan_rate", "2.0", "Wi-Fi scans per second"),
         ("odom_rot_bias", "0.04", "relative heading scale error of odometry"),
         ("odom_trans_bias", "0.015", "relative distance scale error of odometry"),
