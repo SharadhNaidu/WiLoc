@@ -21,13 +21,21 @@ from .. import theme
 from . import style as S
 
 
-def heat_image(fp: FloorPlan, res: float = 0.2) -> tuple[QtGui.QImage, np.ndarray]:
-    """RGBA image of the strongest router's mean RSSI (row 0 = north), and the array it views."""
+def heat_range(rssi: np.ndarray) -> tuple[float, float]:
+    """dBm range the colours span: this venue's own weak-to-strong spread (5 dB steps), as the
+    original dashboard did, so a well-covered office is not one flat red."""
+    lo = 5.0 * math.floor(float(np.percentile(rssi, 2)) / 5.0)
+    hi = 5.0 * math.ceil(float(np.percentile(rssi, 98)) / 5.0)
+    return lo, max(hi, lo + 10.0)
+
+
+def heat_image(fp: FloorPlan, res: float = 0.2) -> tuple[QtGui.QImage, np.ndarray, tuple[float, float]]:
+    """RGBA image of the strongest router's mean RSSI (row 0 = north), the array it views, and its dBm range."""
     sim = RadioSimulator(fp, RadioConfig.from_dict(fp.radio))
     nx, ny = max(1, int(math.ceil(fp.width / res))), max(1, int(math.ceil(fp.height / res)))
     gx, gy = np.meshgrid((np.arange(nx) + 0.5) * res, (np.arange(ny) + 0.5) * res)
     rssi = sim.mean_rssi(np.column_stack([gx.ravel(), gy.ravel()])).max(axis=1).reshape(ny, nx)
-    lo, hi = S.HEAT_DBM
+    lo, hi = heat_range(rssi)
     t = np.clip((rssi - lo) / (hi - lo), 0, 1)
     xs = [s for s, _ in S.HEAT_STOPS]
     cols = np.array([theme.rgb(c) for _, c in S.HEAT_STOPS])
@@ -37,7 +45,44 @@ def heat_image(fp: FloorPlan, res: float = 0.2) -> tuple[QtGui.QImage, np.ndarra
     rgba[..., 3] = 255
     rgba = np.ascontiguousarray(rgba[::-1])  # image rows go north -> south
     img = QtGui.QImage(rgba.data, nx, ny, 4 * nx, QtGui.QImage.Format_RGBA8888).copy()
-    return img, rgba
+    return img, rgba, (lo, hi)
+
+
+def draw_router(p, c, r, col, off=False):
+    """A router: white rounded badge with the Wi-Fi symbol in the router's colour (struck through when off)."""
+    p.save()
+    box = QtCore.QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r)
+    p.setPen(QtGui.QPen(S.qcolor(S.INK, 0.8), S.px(1.6)))
+    p.setBrush(QtGui.QColor(S.CARD))
+    p.drawRoundedRect(box, r * 0.35, r * 0.35)
+    base = QtCore.QPointF(c.x(), c.y() + r * 0.5)
+    pen = QtGui.QPen(col, max(1.5, r * 0.17), QtCore.Qt.SolidLine, QtCore.Qt.RoundCap)
+    p.setPen(pen)
+    p.setBrush(QtCore.Qt.NoBrush)
+    for rad in (r * 0.42, r * 0.78, r * 1.12):  # three arcs, 45 deg either side of up
+        arc = QtCore.QRectF(base.x() - rad, base.y() - rad, 2 * rad, 2 * rad)
+        p.drawArc(arc, 45 * 16, 90 * 16)
+    p.setPen(QtCore.Qt.NoPen)
+    p.setBrush(col)
+    p.drawEllipse(base, r * 0.14, r * 0.14)
+    if off:
+        p.setPen(QtGui.QPen(S.qcolor(S.INK, 0.8), S.px(2), QtCore.Qt.SolidLine, QtCore.Qt.RoundCap))
+        p.drawLine(QtCore.QPointF(box.left() + r * 0.3, box.bottom() - r * 0.3), QtCore.QPointF(box.right() - r * 0.3, box.top() + r * 0.3))
+    p.restore()
+
+
+def draw_person(p, c, heading, size):
+    """A person seen from above: shoulders across the walking direction, head in the middle."""
+    p.save()
+    p.translate(c)
+    p.rotate(-math.degrees(heading))
+    w, d = size, size * 0.5
+    p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(1.4)))
+    p.setBrush(QtGui.QColor("#3F3A34"))
+    p.drawRoundedRect(QtCore.QRectF(-d / 2, -w / 2, d, w), d / 2, d / 2)  # shoulders (x = forward)
+    p.setBrush(QtGui.QColor("#C9A27E"))
+    p.drawEllipse(QtCore.QPointF(d * 0.08, 0), size * 0.24, size * 0.24)  # head
+    p.restore()
 
 
 class MapView(QtWidgets.QWidget):
@@ -49,6 +94,7 @@ class MapView(QtWidgets.QWidget):
         self.fp: FloorPlan | None = None
         self.snap = None
         self.heat = None
+        self.heat_dbm = S.HEAT_DBM
         self.disabled_aps: set[str] = set()
         self.setMouseTracking(True)
         self.setCursor(QtCore.Qt.CrossCursor)
@@ -58,7 +104,7 @@ class MapView(QtWidgets.QWidget):
     def set_plan(self, fp: FloorPlan):
         """New venue or router preset: recompute the heat map."""
         self.fp = fp
-        self.heat, _ = heat_image(fp)
+        self.heat, _, self.heat_dbm = heat_image(fp)
         self.update()
 
     def set_snapshot(self, snap):
@@ -158,16 +204,8 @@ class MapView(QtWidgets.QWidget):
             c = self.to_px(ap.x, ap.y)
             off = ap.id in self.disabled_aps
             col = S.qcolor(S.FAINT if off else theme.ap_color(i))
-            r = S.px(8)
-            p.setPen(QtCore.Qt.NoPen)
-            p.setBrush(S.qcolor(S.INK, 0.75))  # dark halo: visible on any part of the heat map
-            p.drawEllipse(c, r + S.px(2.6), r + S.px(2.6))
-            p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(2.5)))
-            p.setBrush(col)
-            p.drawEllipse(c, r, r)
-            if off:
-                p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(2)))
-                p.drawLine(c + QtCore.QPointF(-r * 0.5, -r * 0.5), c + QtCore.QPointF(r * 0.5, r * 0.5))
+            r = S.px(11)
+            draw_router(p, c, r, col, off)
             p.setFont(S.font(11, S.SEMIBOLD))
             p.setPen(QtGui.QColor(S.MUTED if off else S.INK))
             label = ap.id + ((" off · noticed" if ap.id in noticed else " off") if off else "")
@@ -187,10 +225,7 @@ class MapView(QtWidgets.QWidget):
                 x, y = mv.position(t)
                 c = self.to_px(x, y)
                 if mv.type == "person":
-                    r = max(S.px(4), 0.22 * k)
-                    p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(1.5)))
-                    p.setBrush(S.qcolor("#5C574F", 0.85))
-                    p.drawEllipse(c, r, r)
+                    draw_person(p, c, mv.heading(t), max(S.px(19), 0.55 * k))
                 else:
                     p.save()
                     p.translate(c)
@@ -297,7 +332,7 @@ class MapView(QtWidgets.QWidget):
         fm = QtGui.QFontMetrics(p.font())
         p.drawText(QtCore.QPointF(x, y + S.px(11)), txt)
         bx = x + fm.horizontalAdvance(txt) + S.px(8)
-        bw, bh = S.px(110), S.px(8)
+        bw, bh = S.px(72), S.px(8)
         g = QtGui.QLinearGradient(bx, 0, bx + bw, 0)
         for s, c in S.HEAT_STOPS:
             g.setColorAt(s, QtGui.QColor(c))
@@ -305,14 +340,19 @@ class MapView(QtWidgets.QWidget):
         p.setBrush(g)
         p.drawRoundedRect(QtCore.QRectF(bx, y + S.px(3), bw, bh), bh / 2, bh / 2)
         p.setPen(QtGui.QColor(S.FAINT))
-        lo, hi = S.HEAT_DBM
+        lo, hi = self.heat_dbm
         p.drawText(QtCore.QPointF(bx + bw + S.px(6), y + S.px(11)), f"{lo:.0f} to {hi:.0f} dBm")
         # marker key
         kx = bx + bw + S.px(6) + fm.horizontalAdvance(f"{lo:.0f} to {hi:.0f} dBm") + S.px(18)
-        items = [("truth", "Real robot"), ("pf", "Particle filter"), ("ekf", "Kalman"), ("wknn", "Wi-Fi only")]
+        items = [("router", "Router"), ("person", "Person"), ("truth", "Real robot"), ("pf", "Particle filter"),
+                 ("ekf", "Kalman"), ("wknn", "Wi-Fi only")]
         for key, label in items:
             c = QtCore.QPointF(kx + S.px(6), y + S.px(7))
-            if key == "truth":
+            if key == "router":
+                draw_router(p, c, S.px(7), QtGui.QColor(S.INK))
+            elif key == "person":
+                draw_person(p, c, math.pi / 2, S.px(14))
+            elif key == "truth":
                 p.setPen(QtCore.Qt.NoPen)
                 p.setBrush(QtGui.QColor(S.INK))
                 r = S.px(6)
@@ -332,6 +372,6 @@ class MapView(QtWidgets.QWidget):
                 p.drawEllipse(c, S.px(5.5), S.px(5.5))
             p.setPen(QtGui.QColor(S.MUTED))
             p.drawText(QtCore.QPointF(kx + S.px(16), y + S.px(11)), label)
-            kx += S.px(16) + fm.horizontalAdvance(label) + S.px(14)
+            kx += S.px(16) + fm.horizontalAdvance(label) + S.px(10)
             if kx > self.width() - S.px(60):
                 break
