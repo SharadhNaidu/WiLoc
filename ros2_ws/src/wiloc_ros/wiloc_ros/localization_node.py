@@ -52,6 +52,7 @@ from wiloc.geometry import wrap_angle
 from wiloc.motion import OdometryMotionModel, odom_delta
 from wiloc.cache import cached_maps
 from wiloc.outage import OutageDetector
+from wiloc.story import ConfidenceState, merge_modes
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
@@ -128,6 +129,7 @@ class LocalizationNode(Node):
         )
         self.ekf = WifiEKF(mm)
         self.outage = OutageDetector(self.rmap.n_aps) if gp("outage_detection") else None
+        self.confidence = ConfidenceState()  # LOCKED / UNCERTAIN / SEARCHING for the Studio's pill
         self.global_init = bool(gp("global_init"))
         # A localiser that starts long after the simulation did was respawned
         # after a crash: the robot has moved since, so it must not trust the
@@ -400,6 +402,10 @@ class LocalizationNode(Node):
     def publish_status(self, pose, cov, stamp, estimates):
         mu, sd = self.dense.lookup(pose[None, :2])
         spread = float(math.sqrt(max(np.trace(cov), 0.0)))
+        modes = self.pf.modes(k=3)
+        lost = self.pf.lost()
+        places = merge_modes([(m["xy"][0], m["xy"][1], m["weight"]) for m in modes])
+        state = self.confidence.update(time.monotonic(), spread, lost, places[0][2] if places else 0.0)
         status = {
             "method": self.method,
             "venue": self.fp.name,
@@ -407,6 +413,7 @@ class LocalizationNode(Node):
             "masked_aps": [] if self.outage is None else [a for a, m in zip(self.rmap.ap_ids, self.outage.masked) if m],
             "pose": [float(pose[0]), float(pose[1]), float(pose[2])],
             "spread_m": spread,
+            "state": state,
             "counts": self.counts,
             "ap_ids": list(self.rmap.ap_ids),
             "map_rssi_at_estimate": [float(v) for v in mu[0]],
@@ -423,10 +430,10 @@ class LocalizationNode(Node):
             "resamples": self.pf.n_resamples,
             "injected": self.pf.n_injected,
             "w_ratio": float(self.pf.w_fast / self.pf.w_slow) if self.pf.w_slow else 1.0,
-            "lost": self.pf.lost(),
+            "lost": lost,
             "reseeds": self.pf.n_reseeds,
             # where the particles are: the top hypotheses and their share ("here 55 % or there 35 %")
-            "modes": [[float(m["xy"][0]), float(m["xy"][1]), float(m["weight"])] for m in self.pf.modes(k=3)],
+            "modes": [[float(m["xy"][0]), float(m["xy"][1]), float(m["weight"])] for m in modes],
         }
         self.status_pub.publish(String(data=json.dumps(status)))
 

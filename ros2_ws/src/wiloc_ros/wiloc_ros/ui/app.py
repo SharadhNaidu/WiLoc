@@ -35,12 +35,13 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 
 from wiloc.environment import FloorPlan
+from wiloc.story import AttractMode, RecoveryClock, merge_modes, tour_stops
 
 from . import style as S
 from .backend import Backend
 from .bridge import Bridge
 from .map_view import MapView
-from .panels import Card, CameraView, ChipRow, Header, Leaderboard, Overlay, Pill, RaceChart
+from .panels import Card, CameraView, ChipRow, Header, Leaderboard, Overlay, Pill, RaceChart, Toast
 
 TELEOP_KEYS = {
     QtCore.Qt.Key_Up: "fwd", QtCore.Qt.Key_W: "fwd", QtCore.Qt.Key_Down: "back", QtCore.Qt.Key_S: "back",
@@ -69,7 +70,7 @@ def caption(fp: FloorPlan, status: dict | None, state: str) -> str:
         return f"Sure it is in the {room}" if room else "Sure where it is"
     if state == "SEARCHING":
         return "Lost: comparing the Wi-Fi it hears with every place in the building"
-    modes = [m for m in (status.get("modes") or []) if m[2] >= 0.1]
+    modes = [m for m in merge_modes(status.get("modes") or []) if m[2] >= 0.1]
     rooms = []
     for mx, my, w in modes:
         r = fp.room_at((mx, my)) or "somewhere"
@@ -133,6 +134,15 @@ class Studio(QtWidgets.QWidget):
         self.actions_grid = grid
         self.actions_card.body.addLayout(grid)
         self.overlay = Overlay(self)
+        self.toast = Toast(self)
+        self.hint_text = "Or click anywhere on the map to send the robot there."
+
+        # ---- story: re-found timer and the unattended tour
+        self.recovery = RecoveryClock()
+        self.attract = AttractMode(idle=90.0)
+        self.attract.enabled = False
+        self.attract.touch(time.monotonic())
+        self.tour = tour_stops({n: list(FloorPlan.builtin(n).layouts) for n in FloorPlan.builtin_names()})
 
         # ---- layout
         chips = QtWidgets.QHBoxLayout()
@@ -180,6 +190,13 @@ class Studio(QtWidgets.QWidget):
         self.overlay.setGeometry(self.rect())
         super().resizeEvent(e)
 
+    def eventFilter(self, obj, e):
+        if e.type() in (QtCore.QEvent.MouseButtonPress, QtCore.QEvent.KeyPress, QtCore.QEvent.Wheel):
+            if self.attract.active:
+                self.hint.setText(self.hint_text)
+            self.attract.touch(time.monotonic())  # a visitor is here: the tour steps aside
+        return False
+
     def rescale(self):
         S.set_scale(min(self.width() / 1600.0, self.height() / 940.0) if self.width() > 0 else 1.0)
         m = S.px(20)
@@ -219,11 +236,15 @@ class Studio(QtWidgets.QWidget):
         self.chart.clear()
         self.err_ema = None
         self.last_kidnaps = None  # first evaluator message of this venue sets the baseline
+        self.recovery = RecoveryClock()
         self.rescale()
 
-    def switch_venue(self, name: str):
+    def switch_venue(self, name: str, layout: str | None = None):
         if self.switching or name == self.venue.name:
             self.venue_chips.select(self.venue.name)
+            if not self.switching and layout and layout in self.venue.layouts:
+                self.layout_chips.select(layout)
+                self.switch_layout(layout)
             return
         if self.backend.attach:
             self.venue_chips.select(self.venue.name)
@@ -231,7 +252,7 @@ class Studio(QtWidgets.QWidget):
                                       "Started with --attach: restart without it to switch venues.")
             QtCore.QTimer.singleShot(3000, self.overlay.hide)
             return
-        venue = FloorPlan.builtin(name)
+        venue = FloorPlan.builtin(name, layout if layout in FloorPlan.builtin(name).layouts else None)
         self.switching, self.switch_t = name, time.monotonic()
         self.overlay.show_message(f"Loading {venue.title}…", venue.caption)
         self._load_venue(venue)
@@ -274,6 +295,7 @@ class Studio(QtWidgets.QWidget):
 
     def kidnap(self):
         self.bridge.kidnap()
+        self.recovery.kidnap(time.monotonic())
 
     def toggle_people(self):
         self.body_on = not self.body_on
@@ -300,12 +322,38 @@ class Studio(QtWidgets.QWidget):
         self.manual = False
         self.chart.clear()
 
+    def set_attract(self, on: bool):
+        """Unattended tour (Ctrl+Shift+A): patrol, kidnap now and then, move through the venues."""
+        self.attract.enabled = on
+        self.attract.touch(time.monotonic())
+        self.toast.show_message(f"Auto tour {'on' if on else 'off'}",
+                                "Starts after 90 s without a visitor" if on else "", S.INDIGO, secs=3.0)
+
+    def run_attract(self):
+        for action in self.attract.due(time.monotonic()):
+            if action == "start":
+                self.soft_reset()
+                self.hint.setText("Auto tour running: touch anything to take over.")
+            elif action == "kidnap" and not self.switching and self.ready:
+                self.kidnap()
+            elif action == "rotate" and not self.backend.attach:
+                here = (self.venue.name, self.bridge.fp.layout)
+                i = self.tour.index(here) + 1 if here in self.tour else 0
+                name, layout = self.tour[i % len(self.tour)]
+                if name != self.venue.name:
+                    self.switch_venue(name, layout)
+                else:
+                    self.layout_chips.select(layout)
+                    self.switch_layout(layout)
+
     # ------------------------------------------------------------ keyboard
     def keyPressEvent(self, e):
         mods = e.modifiers()
         if mods & QtCore.Qt.ControlModifier and mods & QtCore.Qt.ShiftModifier:
             if e.key() == QtCore.Qt.Key_R:
                 self.soft_reset()
+            elif e.key() == QtCore.Qt.Key_A:
+                self.set_attract(not self.attract.enabled)
             elif e.key() == QtCore.Qt.Key_F:
                 self.bridge.forget()
             elif e.key() == QtCore.Qt.Key_Q:
@@ -358,10 +406,16 @@ class Studio(QtWidgets.QWidget):
             k = snap.errors.get("kidnaps", 0)
             if self.last_kidnaps is not None and k > self.last_kidnaps:
                 self.chart.mark_kidnap(time.monotonic())
+                if not self.recovery.waiting:  # kidnapped from elsewhere (keyboard, another terminal)
+                    self.recovery.kidnap(time.monotonic())
             self.last_kidnaps = k
         if self.switching and st and snap.truth is not None and time.monotonic() - self.switch_t > 3:
             self.switching = None
             self.overlay.hide()
+            self.attract.venue_loaded(time.monotonic())
+        cam = self.camera_card.geometry()
+        self.toast.place(cam.center().x(), cam.top() + S.px(56))
+        self.toast.tick()
         if not self.ready and st and snap.truth is not None:
             self.ready = True
             if not self.switching:
@@ -389,11 +443,16 @@ class Studio(QtWidgets.QWidget):
             return  # nothing yet, or still the previous venue's simulation
         tx, ty = snap.truth[:2]
         errs = {m: math.hypot(p[0] - tx, p[1] - ty) for m, p in snap.poses.items()}
+        took = self.recovery.update(time.monotonic(), errs.get("pf"))
+        if took is not None:
+            self.toast.show_message(f"Re-found in {took:.1f} s", "kidnapped, then found again using only Wi-Fi",
+                                    S.STATE_COLORS["LOCKED"])
         if snap.errors:
             errs["odometry"] = (snap.errors.get("current") or {}).get("odometry")
         self.chart.add(time.monotonic(), errs)
 
     def watchdog(self):
+        self.run_attract()
         if self.switching:
             if time.monotonic() - self.switch_t > 90:
                 self.overlay.show_message("Still loading…", "The simulation is taking longer than usual.")
@@ -450,6 +509,8 @@ def _run_script(app, win: Studio, script: str):
             elif name == "view":
                 if arg != win.view_mode:
                     win.toggle_view()
+            elif name == "attract":
+                win.set_attract(arg != "off")
             elif name == "quit":
                 win.close()
                 app.quit()
@@ -465,6 +526,7 @@ def main(argv=None):
     p.add_argument("--size", default="", help="window size WxH (default: full screen)")
     p.add_argument("--windowed", action="store_true", help="a normal window instead of full screen")
     p.add_argument("--launch-arg", action="append", default=[], help="extra sim.launch.py argument (repeatable)")
+    p.add_argument("--attract", action="store_true", help="unattended tour after 90 s without a visitor (Ctrl+Shift+A)")
     p.add_argument("--no-overlay", action="store_true", help=argparse.SUPPRESS)  # layout reviews without a simulation
     a, _ = p.parse_known_args(argv if argv is not None else sys.argv[1:])
 
@@ -480,6 +542,11 @@ def main(argv=None):
     app.setStyleSheet(S.qss())
     backend = Backend(attach=a.attach, launch_args=a.launch_arg)
     win = Studio(bridge, backend, venue)
+    app.installEventFilter(win)
+    win.attract.enabled = a.attract
+    if os.environ.get("WILOC_ATTRACT_TIMES"):  # checks: "idle,kidnap_every,rotate_every,first_kidnap" in seconds
+        idle, kev, rev, first = (float(v) for v in os.environ["WILOC_ATTRACT_TIMES"].split(","))
+        win.attract.idle, win.attract.kidnap_every, win.attract.rotate_every, win.attract.first_kidnap = idle, kev, rev, first
     if a.size:
         w, h = (int(v) for v in a.size.lower().split("x"))
         win.resize(w, h)

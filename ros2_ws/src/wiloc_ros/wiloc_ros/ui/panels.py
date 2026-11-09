@@ -392,7 +392,7 @@ class CameraView(QtWidgets.QWidget):
 
     def _ray_legend(self, p, r):
         p.setFont(S.font(12))
-        txt = "Lines: Wi-Fi from each router · thicker = louder · dashed = through walls · faded = a person in the way"
+        txt = "Wi-Fi lines: thick = loud · dashed = through a wall · faded = blocked by a person"
         fm = QtGui.QFontMetrics(p.font())
         w = min(r.width() - S.px(24), fm.horizontalAdvance(txt) + S.px(24))
         box = QtCore.QRectF(S.px(12), r.bottom() - S.px(38), w, S.px(26))
@@ -571,3 +571,60 @@ class Overlay(QtWidgets.QWidget):
             p.setPen(QtCore.Qt.NoPen)
             p.setBrush(S.qcolor(S.INDIGO, a))
             p.drawEllipse(QtCore.QPointF(r.center().x() + (i - 1) * S.px(18), r.bottom() - S.px(32)), S.px(5), S.px(5))
+
+
+class Toast(QtWidgets.QWidget):
+    """Short message that slides in over the views ("Re-found in 12.4 s") and fades out."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.text, self.sub, self.color = "", "", S.INK
+        self.t0, self.secs = 0.0, 0.0
+        self.hide()
+
+    def show_message(self, text, sub="", color=None, secs=6.0):
+        self.text, self.sub, self.color = text, sub, color or S.INK
+        self.t0, self.secs = time.monotonic(), secs
+        self.show()
+        self.raise_()
+
+    def place(self, centre_x, top):
+        w, h = S.px(460), S.px(74)
+        self.setGeometry(int(centre_x - w / 2), int(top), w, h + S.px(12))
+
+    def tick(self):
+        if self.isVisible():
+            if time.monotonic() - self.t0 > self.secs:
+                self.hide()
+            else:
+                self.update()
+
+    def paintEvent(self, _):
+        age = time.monotonic() - self.t0
+        a = min(1.0, age / 0.25, max(0.0, (self.secs - age) / 0.6))
+        slide = (1.0 - min(1.0, age / 0.25)) * S.px(10)
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setOpacity(a)
+        r = QtCore.QRectF(1, 1 - slide + S.px(4), self.width() - 2, self.height() - S.px(14))
+        p.setPen(QtCore.Qt.NoPen)
+        p.setBrush(S.qcolor(S.INK, 0.08))
+        p.drawRoundedRect(r.translated(0, S.px(4)), r.height() / 2, r.height() / 2)  # soft shadow
+        p.setPen(QtGui.QPen(QtGui.QColor(S.HAIRLINE), 1))
+        p.setBrush(QtGui.QColor(S.CARD))
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        d = S.px(14)
+        p.setPen(QtCore.Qt.NoPen)
+        p.setBrush(QtGui.QColor(self.color))
+        p.drawEllipse(QtCore.QPointF(r.left() + S.px(30), r.center().y()), d / 2, d / 2)
+        tx = r.adjusted(S.px(52), S.px(10), -S.px(20), -S.px(8))
+        p.setPen(QtGui.QColor(S.INK))
+        p.setFont(S.font(20, S.SEMIBOLD))
+        if self.sub:
+            p.drawText(tx, QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop, self.text)
+            p.setFont(S.font(13))
+            p.setPen(QtGui.QColor(S.MUTED))
+            p.drawText(tx, QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom, self.sub)
+        else:
+            p.drawText(tx, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, self.text)
