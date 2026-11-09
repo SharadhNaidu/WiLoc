@@ -34,8 +34,8 @@ STATE_TEXT = {"LOCKED": "Located", "UNCERTAIN": "Not sure", "SEARCHING": "Search
 # Walls on the map, by radio material (darker = stops more signal)
 WALL_COLORS = {"concrete": "#2E2B27", "brick": "#6E4A3A", "drywall": "#8F8577", "glass": "#6FA6CC", "wood": "#7A5535", "metal": "#4A5562"}
 
-# Heat map: weak -> strong signal, a warm sequential ramp on ivory
-HEAT_STOPS = [(0.0, "#FAF7F2"), (0.3, "#F6E6D6"), (0.55, "#F2CBAA"), (0.8, "#EBA478"), (1.0, "#E07E4C")]
+# Heat map: weak -> strong signal, the original WiLoc ramp (pale blue -> teal -> amber -> red-orange, theme.HEAT_STOPS)
+HEAT_STOPS = [(0.0, "#e8f1fb"), (0.3, "#9fd3e6"), (0.55, "#17a398"), (0.78, "#e09f1f"), (1.0, "#e4572e")]
 HEAT_DBM = (-90.0, -30.0)  # one fixed, honest scale for every venue and layout
 
 # ------------------------------------------------------------------ sizing

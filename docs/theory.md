@@ -246,7 +246,7 @@ covers 18 venue/layout pairs, 3 runs each, with people and vehicles blocking
 Wi-Fi.
 
 * **Wi-Fi alone (WKNN) depends on the routers.** Its median error is 0.9 m
-  under a dense ceiling grid (library, 9 routers) and rises to 2–6 m with 1–2
+  under a dense ceiling grid (library, 9 routers) and rises to 1.8–5.6 m with 1–2
   routers. With one router at the library's issue desk it reaches 9.3 m.
 * **The particle filter barely depends on them.** Its median error stays
   between 0.20 and 0.50 m in 17 of 18 cases, including one router in a flat
@@ -255,7 +255,7 @@ Wi-Fi.
 * **The few-router layouts expose the limit: finding itself again.**
   * With the routers as installed, the particle filter re-finds a kidnapped
     robot in a median of 2.5–10 s.
-  * With 1–2 routers it takes 14–43 s or fails: in the library with one
+  * With 1–2 routers it takes 10–43 s or fails: in the library with one
     router it never re-finds the robot. One signal strength cannot tell
     places at the same distance apart.
 * **The warehouse is the exception, and the Kalman filter wins there**: 0.29

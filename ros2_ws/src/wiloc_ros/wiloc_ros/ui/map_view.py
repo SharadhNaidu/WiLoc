@@ -115,7 +115,8 @@ class MapView(QtWidgets.QWidget):
         p.setClipPath(path)
         p.fillRect(plan_rect, QtGui.QColor(S.IVORY))
         if self.heat is not None:
-            p.setOpacity(0.62)  # a calm backdrop: the estimates are the foreground
+            p.setOpacity(0.85)
+            p.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)  # bilinear, as the original map
             p.drawImage(plan_rect, self.heat)
             p.setOpacity(1.0)
         p.restore()
@@ -158,6 +159,9 @@ class MapView(QtWidgets.QWidget):
             off = ap.id in self.disabled_aps
             col = S.qcolor(S.FAINT if off else theme.ap_color(i))
             r = S.px(8)
+            p.setPen(QtCore.Qt.NoPen)
+            p.setBrush(S.qcolor(S.INK, 0.75))  # dark halo: visible on any part of the heat map
+            p.drawEllipse(c, r + S.px(2.6), r + S.px(2.6))
             p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(2.5)))
             p.setBrush(col)
             p.drawEllipse(c, r, r)
@@ -245,6 +249,9 @@ class MapView(QtWidgets.QWidget):
             col = QtGui.QColor(S.METHOD_COLORS[m])
             if m == "pf":
                 r = S.px(9)
+                p.setPen(QtCore.Qt.NoPen)
+                p.setBrush(S.qcolor(S.INK, 0.75))
+                p.drawEllipse(c, r + S.px(2.6), r + S.px(2.6))
                 p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(2.5)))
                 p.setBrush(col)
                 p.drawEllipse(c, r, r)
@@ -252,14 +259,21 @@ class MapView(QtWidgets.QWidget):
                 p.drawLine(c, c + QtCore.QPointF(math.cos(yaw) * r * 0.95, -math.sin(yaw) * r * 0.95))
             elif m == "ekf":
                 r = S.px(8)
-                p.setPen(QtGui.QPen(col, S.px(3)))
                 p.setBrush(QtCore.Qt.NoBrush)
+                p.setPen(QtGui.QPen(S.qcolor(S.INK, 0.75), S.px(6)))
+                p.drawEllipse(c, r, r)
+                p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(4.4)))
+                p.drawEllipse(c, r, r)
+                p.setPen(QtGui.QPen(col, S.px(3)))
                 p.drawEllipse(c, r, r)
             else:
                 r = S.px(7)
-                p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(1.5)))
+                p.setPen(QtGui.QPen(S.qcolor(S.INK, 0.75), S.px(4.5)))
                 p.setBrush(col)
-                p.drawPolygon(QtGui.QPolygonF([c + QtCore.QPointF(0, -r), c + QtCore.QPointF(r, 0), c + QtCore.QPointF(0, r), c + QtCore.QPointF(-r, 0)]))
+                diamond = QtGui.QPolygonF([c + QtCore.QPointF(0, -r), c + QtCore.QPointF(r, 0), c + QtCore.QPointF(0, r), c + QtCore.QPointF(-r, 0)])
+                p.drawPolygon(diamond)
+                p.setPen(QtGui.QPen(QtGui.QColor(S.CARD), S.px(1.8)))
+                p.drawPolygon(diamond)
 
         # the robot where it really is
         if snap.truth is not None:

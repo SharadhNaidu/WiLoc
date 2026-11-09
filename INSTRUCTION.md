@@ -124,7 +124,7 @@ for about 10 to 30 seconds while the simulation starts behind it.
 | **Top right** | The **big number** is how far, in metres, the robot's own guess is from where it really is. The pill next to it says **Located**, **Not sure** or **Searching**, with one line of explanation underneath. |
 | **Venue and Routers chips** | Pick a building: Office, Home, Hospital ward, Warehouse, Library, Factory. Then pick how the Wi-Fi routers are placed in it. A new building takes about 15 seconds; a new router layout switches at once. |
 | **The real world** (left) | The live 3-D simulation. The coloured lines run from the robot to each Wi-Fi router: thick means a strong signal, dashed means it goes through a wall, and faded means a person or a forklift is in the way. The rings on the floor are the guesses of the three methods. |
-| **What the robot believes** (right) | The map. The orange background is the Wi-Fi signal strength. The coloured dots are the routers. The black triangle is the real robot, and the blue dot with small blue dots around it is the particle filter's guess with its particles. People and vehicles move on the map too. |
+| **What the robot believes** (right) | The map. The coloured background is the Wi-Fi signal strength: red and orange are strong, green and blue are weak. The coloured dots are the routers. The black triangle is the real robot, and the blue dot with small blue dots around it is the particle filter's guess with its particles. People and vehicles move on the map too. |
 | **The race** (bottom left) | How wrong each method is over the last 2 minutes: the **particle filter** (Wi-Fi + wheels + map), the **Kalman filter** (Wi-Fi + wheels), **Wi-Fi only**, and **wheels only**. The chips show each method's typical error over the last 30 seconds. |
 | **Try it** (bottom right) | The buttons for visitors. |
 
@@ -197,8 +197,13 @@ the visitor at once.
    feel that, so it thinks it is still over there. Wi-Fi tells it otherwise.
    Searching… Re-found."*
 3. *"Three methods are racing."* Point at the race chart: *"Wi-Fi alone jumps
-   around by metres. Adding the wheels and the floor plan, which is the
-   particle filter, keeps it steady."*
+   around by metres. Adding the wheels (the Kalman filter) or the wheels and
+   the floor plan (the particle filter) keeps it within half a metre."* The
+   particle filter's real advantage is that it **finds itself again after a
+   kidnap**, and it **copes with very few routers**: switch the Home to
+   *ISP router only* (particle filter 0.3 m, Kalman filter about 2.8 m). In the
+   Warehouse the Kalman filter often leads the chips. That is a real result
+   (look-alike aisles), not a bug: say so if a visitor asks.
 4. For people who stay: unplug a router, switch to the **Hospital ward**
    (identical rooms: "Not sure: Room 3 or Room 11"), or the **Warehouse**
    (metal racks block Wi-Fi). Let them click on the map to send the robot.
