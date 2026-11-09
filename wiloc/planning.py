@@ -262,9 +262,13 @@ def validate_floorplan(fp: FloorPlan, grid: OccupancyGrid | None = None) -> list
         for name, p in named[1:]:
             if grid.plan(start, p) is None:
                 problems.append(f"{name} cannot be reached from the start pose")
-    for ap in fp.access_points:
-        if not (0 <= ap.x <= fp.width and 0 <= ap.y <= fp.height):
-            problems.append(f"access point {ap.id} is outside the building")
+    for layout, (_, aps) in fp.layouts.items():
+        ids = [ap.id for ap in aps]
+        if len(set(ids)) != len(ids):
+            problems.append(f"router layout {layout!r} repeats an access point id")
+        for ap in aps:
+            if not (0 <= ap.x <= fp.width and 0 <= ap.y <= fp.height):
+                problems.append(f"access point {ap.id} ({layout}) is outside the building")
     for name, (x0, y0, x1, y1) in fp.rooms:
         if x0 < 0 or y0 < 0 or x1 > fp.width or y1 > fp.height or x1 <= x0 or y1 <= y0:
             problems.append(f"room {name!r} has a bad rectangle")

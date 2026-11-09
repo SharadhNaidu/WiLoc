@@ -110,6 +110,7 @@ class ParticleFilter:
         self.max_inject, self.inject_threshold = max_inject, inject_threshold
         self.n_resamples = self.n_injected = 0  # bookkeeping for monitoring
         self.fp, self.map = floorplan, radio_map
+        self.ap_mask = None  # bool (A,): APs the measurement model may use (None: all); see OutageDetector
         self.n = n_particles
         self.motion = motion_model or OdometryMotionModel()
         self.sens = sensitivity_dbm
@@ -181,16 +182,19 @@ class ParticleFilter:
         """log p(z | x) for scan z (A,) at positions xy (N, 2)."""
         mu, sd = self.map.lookup(xy)
         heard = ~np.isnan(z)
+        missing = ~heard
+        if self.ap_mask is not None:  # an AP believed to be off says nothing about where we are
+            heard, missing = heard & self.ap_mask, missing & self.ap_mask
         ll = np.zeros(len(xy))
         if heard.any():
             r = (z[heard][None, :] - mu[:, heard]) / sd[:, heard]
             gauss = -0.5 * r**2 - np.log(sd[:, heard] * np.sqrt(2 * np.pi))
             # Robust mixture with a uniform over a 100 dB range.
             ll += np.logaddexp(np.log(1 - self.eps) + gauss, np.log(self.eps / 100.0)).sum(axis=1)
-        if (~heard).any():
+        if missing.any():
             # Censored reading: P(RSSI < sensitivity).
             ll += np.logaddexp(
-                np.log(1 - self.eps) + log_ndtr((self.sens - mu[:, ~heard]) / sd[:, ~heard]), np.log(self.eps)
+                np.log(1 - self.eps) + log_ndtr((self.sens - mu[:, missing]) / sd[:, missing]), np.log(self.eps)
             ).sum(axis=1)
         return self.temper * ll
 

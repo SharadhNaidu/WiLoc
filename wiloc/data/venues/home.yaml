@@ -1,0 +1,112 @@
+# A two-bedroom flat, 12 m x 9 m: brick and concrete walls, an ISP router and one mesh node.
+name: home
+title: Home
+caption: "Two routers in a flat: Wi-Fi alone is lost, the filter is not"
+width: 12
+height: 9
+wall_height: 2.6
+wall_thickness: 0.15
+
+radio:
+  seed: 11
+  path_loss_exponent: 2.0
+  shadowing_sigma_db: 5
+  shadowing_corr_m: 3.0
+  temporal_sigma_db: 3.0
+  sensitivity_dbm: -95.0
+
+walls:
+  - {seg: [0, 0, 12, 0], material: concrete}
+  - {seg: [12, 0, 12, 9], material: concrete}
+  - {seg: [12, 9, 0, 9], material: concrete}
+  - {seg: [0, 9, 0, 0], material: concrete}
+  - {seg: [0, 4.5, 3, 4.5], material: brick}
+  - {seg: [4.2, 4.5, 9, 4.5], material: brick}
+  - {seg: [10.2, 4.5, 12, 4.5], material: brick}
+  - {seg: [7, 0, 7, 1.5], material: brick}
+  - {seg: [7, 2.7, 7, 4.5], material: brick}
+  - {seg: [0, 5.9, 2.8, 5.9], material: brick}
+  - {seg: [3.8, 5.9, 5.2, 5.9], material: brick}
+  - {seg: [6.2, 5.9, 8, 5.9], material: brick}
+  - {seg: [9, 5.9, 12, 5.9], material: brick}
+  - {seg: [4.5, 5.9, 4.5, 9], material: concrete}
+  - {seg: [7, 5.9, 7, 9], material: concrete}
+
+layout_label: ISP router + mesh node, as installed
+access_points:
+  - {id: Router, x: 0.4, y: 0.4, tx_power: 20, channel: 1}
+  - {id: Mesh, x: 11.5, y: 8.5, tx_power: 17, channel: 6}
+
+ap_layouts:
+  router_only:
+    label: ISP router only
+    access_points:
+      - {id: Router, x: 0.4, y: 0.4, tx_power: 20, channel: 1}
+  mesh_hallway:
+    label: router + mesh node in the hallway
+    access_points:
+      - {id: Router, x: 0.4, y: 0.4, tx_power: 20, channel: 1}
+      - {id: Mesh, x: 6, y: 5.2, tx_power: 17, channel: 6}
+
+camera:
+  overview: [6, -4.9, 11.6, 0.98, 1.571]
+
+start_pose: [1, 5.2, 0]
+waypoints:
+  - [3.3, 5.2]
+  - [3.3, 7.4]
+  - [5.7, 5.2]
+  - [5.7, 7.2]
+  - [8.5, 5.2]
+  - [9.2, 7.2]
+  - [9.6, 5.2]
+  - [9.6, 3.6]
+  - [7.9, 1.5]
+  - [6.2, 2.1]
+  - [3, 1.5]
+  - [3.6, 3.7]
+
+rooms:
+  - {name: "Living room", rect: [0, 0, 7, 4.5]}
+  - {name: Kitchen, rect: [7, 0, 12, 4.5]}
+  - {name: Hallway, rect: [0, 4.5, 12, 5.9]}
+  - {name: "Bedroom 1", rect: [0, 5.9, 4.5, 9]}
+  - {name: Bathroom, rect: [4.5, 5.9, 7, 9]}
+  - {name: "Bedroom 2", rect: [7, 5.9, 12, 9]}
+
+furniture:
+  - {type: sofa, rect: [0.2, 1, 1.05, 3.2], back: w}
+  - {type: coffee_table, at: [1.9, 2.1], rotate: true}
+  - {type: cabinet, rect: [3.3, 0.15, 4.9, 0.6], height: 0.55}
+  - {type: table, rect: [4.6, 2.4, 5.8, 3.2]}
+  - {type: chair, at: [4.9, 2.05], back: s}
+  - {type: chair, at: [5.5, 2.05], back: s}
+  - {type: chair, at: [4.9, 3.55], back: n}
+  - {type: chair, at: [5.5, 3.55], back: n}
+  - {type: plant, at: [6.6, 0.45]}
+  - {type: counter, rect: [7.6, 0.15, 10, 0.8]}
+  - {type: counter, rect: [11.25, 0.3, 11.85, 3]}
+  - {type: fridge, rect: [11.2, 3.3, 11.85, 4]}
+  - {type: table, rect: [8.7, 2.2, 9.9, 3]}
+  - {type: chair, at: [8.95, 1.85], back: s}
+  - {type: chair, at: [9.65, 1.85], back: s}
+  - {type: bed, rect: [0.2, 6.8, 2.2, 8.4], back: w}
+  - {type: cabinet, rect: [3, 8.3, 4.3, 8.85], height: 2}
+  - {type: plant, at: [0.45, 6.3]}
+  - {type: cabinet, rect: [6.3, 7, 6.85, 7.8], height: 0.85}
+  - {type: box, rect: [4.65, 8.1, 6.85, 8.85], height: 0.55}
+  - {type: bed, rect: [10, 6.4, 11.85, 7.4], back: e}
+  - {type: desk, rect: [7.2, 8.15, 8.8, 8.85]}
+  - {type: chair, at: [8, 7.75], back: s}
+  - {type: bookshelf, rect: [11.5, 7.9, 11.85, 8.85]}
+
+kidnap_spots:
+  - [2, 0.8]
+  - [10.3, 3.7]
+  - [3.3, 7.2]
+  - [9.2, 7]
+
+movers:
+  - {id: walker_kitchen, type: person, route: [[10.3, 1.3], [7.6, 1.5], [6.5, 2.1], [6.2, 1.3], [3.2, 1.3]], loop: false, pause: 4}
+  - {id: sitting_kitchen, type: person, route: [[8.95, 1.85]], yaw: 1.571, anim: sitting}
+  - {id: sofa, type: person, route: [[0.65, 2.1]], yaw: 0, anim: sitting}

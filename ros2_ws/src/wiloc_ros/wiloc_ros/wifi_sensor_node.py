@@ -24,10 +24,16 @@ the ``/ground_truth`` stamps, so they match Gazebo's scripted actors.  The
 localiser is not told: it is a robustness test.  ``/wiloc/body_shadowing``
 switches both effects off and on.
 
+Router presets (``ap_layouts:``) switch live on ``/wiloc/ap_layout`` (latched
+String): the simulator is rebuilt for the new access points and Gazebo's AP
+discs (``ap_slot_<i>``) are moved to them, or parked below the floor.
+
 Topics
   sub  /ground_truth            nav_msgs/Odometry
   sub  /wiloc/heatmap_select    std_msgs/Int32   (-1 = strongest AP, i = AP index)
   sub  /wiloc/body_shadowing    std_msgs/Bool    (movers' effect on Wi-Fi, default on)
+  sub  /wiloc/ap_layout         std_msgs/String  (router preset, latched)
+  sub  /wiloc/ap_disabled       std_msgs/String  (JSON list of unplugged AP ids, latched)
   pub  /wifi/scan               wiloc_msgs/RssiScan
   pub  /wifi/scan_debug         std_msgs/String  (JSON RSSI breakdown per AP)
   pub  /wiloc/wifi_links        visualization_msgs/MarkerArray
@@ -49,11 +55,14 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import Bool, ColorRGBA, Int32, String
 from visualization_msgs.msg import Marker, MarkerArray
 
+from gazebo_msgs.msg import EntityState
+from gazebo_msgs.srv import SetEntityState
 from wiloc.radio import RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, radio_config, run_node
+from .common import AP_DISABLED_TOPIC, latched_qos, radio_config, run_node, subscribe_ap_layout, venue_from_params
+from .world_gen import ap_slot_pose
 
 HEAT_LO, HEAT_HI = -85.0, -25.0  # dBm range of the heat-map / link colour ramp
 
@@ -78,11 +87,10 @@ def rssi_color(rssi: float, alpha: float = 0.95) -> ColorRGBA:
 class WifiSensorNode(Node):
     def __init__(self):
         super().__init__("wifi_sensor")
-        self.declare_parameter("floorplan", "office")
         self.declare_parameter("scan_rate", 2.0)
         self.declare_parameter("noise_seed", 0)
         gp = lambda n: self.get_parameter(n).value
-        self.fp = load_floorplan(gp("floorplan"))
+        self.venue, self.fp = venue_from_params(self)
         cfg = radio_config(self, self.fp)
         self.sim = RadioSimulator(self.fp, cfg)
         self.rng = np.random.default_rng(int(gp("noise_seed")))
@@ -91,6 +99,7 @@ class WifiSensorNode(Node):
         self.n_scans = 0
         self.movers = self.fp.movers
         self.body_shadowing = True
+        self.disabled: set[str] = set()  # unplugged routers: never heard
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.pub = self.create_publisher(RssiScan, "/wifi/scan", 10)
@@ -101,7 +110,10 @@ class WifiSensorNode(Node):
         self.heat_marker_pub = self.create_publisher(MarkerArray, "/wiloc/rssi_heatmap_markers", latched)
         self.create_subscription(Odometry, "/ground_truth", self.on_truth, 10)
         self.create_subscription(Int32, "/wiloc/heatmap_select", self.on_heatmap_select, 10)
-        self.create_subscription(Bool, "/wiloc/body_shadowing", self.on_body_shadowing, 10)
+        self.create_subscription(Bool, "/wiloc/body_shadowing", self.on_body_shadowing, latched_qos())
+        subscribe_ap_layout(self, self.venue, self.set_layout)
+        self.create_subscription(String, AP_DISABLED_TOPIC, self.on_disabled, latched_qos())
+        self.gz_set = self.create_client(SetEntityState, "/gazebo/set_entity_state")
         self.create_timer(1.0 / float(gp("scan_rate")), self.on_timer)
         self._prepare_heatmaps()
         self.heat_choice = -1
@@ -123,6 +135,33 @@ class WifiSensorNode(Node):
             self.body_shadowing = bool(msg.data)
             self.get_logger().info(f"moving obstacles' effect on Wi-Fi: {'on' if self.body_shadowing else 'off'}")
 
+    def on_disabled(self, msg: String):
+        ids = set(json.loads(msg.data or "[]"))
+        if ids != self.disabled:
+            self.disabled = ids
+            self.get_logger().info(f"unplugged routers: {sorted(ids) or 'none'}")
+
+    def set_layout(self, name: str):
+        """Switch to router preset ``name``: new simulator, heat maps and AP discs in Gazebo."""
+        if name == self.fp.layout:
+            return
+        self.fp = self.venue.with_layout(name)
+        self.sim = RadioSimulator(self.fp, self.sim.cfg)
+        self._prepare_heatmaps()
+        self.heat_choice = -1
+        self.publish_environment()
+        self.publish_heatmap()
+        for i in range(self.venue.max_access_points):
+            x, y, z = ap_slot_pose(self.fp, i)
+            req = SetEntityState.Request()
+            req.state = EntityState()
+            req.state.name, req.state.reference_frame = f"ap_slot_{i}", "world"
+            req.state.pose.position.x, req.state.pose.position.y, req.state.pose.position.z = x, y, z
+            req.state.pose.orientation.w = 1.0
+            if self.gz_set.service_is_ready():
+                self.gz_set.call_async(req)
+        self.get_logger().info(f"router layout -> {name}: {self.fp.layout_label} ({len(self.fp.access_points)} APs)")
+
     def on_heatmap_select(self, msg: Int32):
         self.heat_choice = int(msg.data) if -1 <= msg.data < len(self.fp.access_points) else -1
         self.publish_heatmap()
@@ -137,6 +176,9 @@ class WifiSensorNode(Node):
             blocking = self.movers.blocking_loss(pose[None, :], self.fp.ap_positions, t)
             extra_sigma = self.movers.extra_sigma(pose[None, :])
         z = self.sim.measure(pose[None, :], self.rng, extra_loss_db=blocking, extra_sigma_db=extra_sigma)[0]
+        for j, ap in enumerate(self.fp.access_points):
+            if ap.id in self.disabled:
+                z[j] = np.nan
         stamp = self.get_clock().now().to_msg()
         self.n_scans += 1
 
@@ -151,6 +193,7 @@ class WifiSensorNode(Node):
         rows = self.sim.breakdown(pose)
         block = np.zeros(len(rows)) if blocking is None else blocking[0]
         for r, zj, bj in zip(rows, z, block):
+            r["enabled"] = r["id"] not in self.disabled
             r["blocking_db"] = float(bj)  # bodies near the link (included in measured, not in mean_rssi)
             r["measured_dbm"] = None if np.isnan(zj) else float(zj)
             r["noise_db"] = None if np.isnan(zj) else float(zj - (r["mean_rssi_dbm"] - bj))
@@ -216,6 +259,9 @@ class WifiSensorNode(Node):
     def publish_environment(self):
         arr = MarkerArray()
         stamp = self.get_clock().now().to_msg()
+        clear = Marker()
+        clear.action = Marker.DELETEALL  # a router preset with fewer APs leaves no stale markers
+        arr.markers.append(clear)
         for i, (seg, mat) in enumerate(zip(self.fp.walls, self.fp.wall_materials)):
             m = self._marker("walls", i, Marker.CUBE, stamp)
             x1, y1, x2, y2 = seg

@@ -83,7 +83,7 @@ def main(argv=None):
     for spec in a.view:
         name, vals = spec.split("=", 1)
         views[name] = tuple(float(v) for v in vals.split(","))
-    sdf = world_sdf(fp)
+    sdf = world_sdf(fp, camera=False)
     cams = "".join(_camera(n, *v) for n, v in views.items())
     sdf = sdf.replace("\n  </world>", cams + "\n  </world>")
     world = os.path.join(tempfile.gettempdir(), f"wiloc_preview_{fp.name}.world")

@@ -8,7 +8,9 @@ Besides walls and access points a plan can describe what makes it look like a
 real place: named ``rooms`` (for captions), ``furniture`` (typed boxes that the
 robot must drive around: ``obstacles``, used by the planner) and curated
 ``kidnap_spots``, plus ``movers`` (people, forklifts, AGVs) and ``noise_zones``
-(see ``wiloc.movers``).  Furniture is deliberately invisible to the radio model and
+(see ``wiloc.movers``).  Router placements come as named presets
+(``ap_layouts:``; the top-level ``access_points`` are the "installed" one) and
+``with_layout(name)`` switches between them.  Furniture is deliberately invisible to the radio model and
 to the particle filter: the radio world and every result stay comparable.
 """
 
@@ -116,6 +118,19 @@ class FloorPlan:
     rooms: list[tuple[str, tuple[float, float, float, float]]] = field(default_factory=list)
     kidnap_spots: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     movers: Movers = field(default_factory=Movers)  # people / vehicles and noise zones (``movers:``, ``noise_zones:``)
+    title: str = ""  # display name ("Hospital ward")
+    caption: str = ""  # one line: what this venue shows
+    camera: dict = field(default_factory=dict)  # named views: name -> [x, y, z, pitch, yaw]
+    layouts: dict = field(default_factory=dict)  # router presets: name -> (label, [AccessPoint])
+    layout: str = ""  # current preset
+
+    def __post_init__(self):
+        if not self.title:
+            self.title = self.name.replace("_", " ").capitalize()
+        if not self.layouts:
+            self.layouts = {"installed": ("as installed", list(self.access_points))}
+            self.layout = "installed"
+        self.layout = self.layout or next(iter(self.layouts))
 
     # ------------------------------------------------------------------ io
     @classmethod
@@ -126,7 +141,15 @@ class FloorPlan:
         for w in d["walls"]:
             walls.append([float(v) for v in w["seg"]])
             mats.append(w.get("material", "drywall"))
-        aps = [AccessPoint(**ap) for ap in d["access_points"]]
+        layouts = {}
+        if d.get("access_points"):
+            layouts["installed"] = (str(d.get("layout_label", "as installed")), [AccessPoint(**ap) for ap in d["access_points"]])
+        for key, lay in (d.get("ap_layouts") or {}).items():
+            layouts[str(key)] = (str(lay.get("label", key)), [AccessPoint(**ap) for ap in lay["access_points"]])
+        if not layouts:
+            raise ValueError("a floor plan needs access_points or ap_layouts")
+        first = next(iter(layouts))
+        aps = list(layouts[first][1])
         return cls(
             name=d.get("name", "floorplan"),
             width=float(d["width"]),
@@ -144,6 +167,11 @@ class FloorPlan:
             rooms=[(str(r["name"]), tuple(float(v) for v in r["rect"])) for r in d.get("rooms") or []],
             kidnap_spots=np.array(d.get("kidnap_spots") or [], dtype=float).reshape(-1, 2),
             movers=Movers.from_dicts(d.get("movers"), d.get("noise_zones")),
+            title=str(d.get("title", "")),
+            caption=str(d.get("caption", "")),
+            camera={str(k): [float(v) for v in vals] for k, vals in (d.get("camera") or {}).items()},
+            layouts=layouts,
+            layout=first,
         )
 
     @classmethod
@@ -152,16 +180,41 @@ class FloorPlan:
             return cls.from_dict(yaml.safe_load(f))
 
     @classmethod
-    def builtin(cls, name: str = "office") -> "FloorPlan":
-        """Load one of the floor plans shipped in ``wiloc/data``."""
-        ref = resources.files("wiloc") / "data" / f"{name}.yaml"
+    def builtin(cls, name: str = "office", layout: str | None = None) -> "FloorPlan":
+        """Load one of the venues shipped in ``wiloc/data/venues`` (optionally with a router preset)."""
+        ref = resources.files("wiloc") / "data" / "venues" / f"{name}.yaml"
+        if not ref.is_file():
+            raise FileNotFoundError(f"no built-in venue {name!r}; known: {cls.builtin_names()}")
         with ref.open("r", encoding="utf-8") as f:
-            return cls.from_dict(yaml.safe_load(f))
+            fp = cls.from_dict(yaml.safe_load(f))
+        return fp.with_layout(layout) if layout else fp
 
     @staticmethod
     def builtin_names() -> list[str]:
-        """Names of the floor plans shipped in ``wiloc/data``."""
-        return sorted(p.name[: -len(".yaml")] for p in (resources.files("wiloc") / "data").iterdir() if p.name.endswith(".yaml"))
+        """Names of the venues shipped in ``wiloc/data/venues``, in story order."""
+        names = [p.name[: -len(".yaml")] for p in (resources.files("wiloc") / "data" / "venues").iterdir() if p.name.endswith(".yaml")]
+        story = ["office", "home", "hospital", "warehouse", "library", "factory"]  # the order the stand tells them
+        return sorted(names, key=lambda n: (story.index(n) if n in story else len(story), n))
+
+    def with_layout(self, name: str) -> "FloorPlan":
+        """Copy of the plan with the access points of router preset ``name``."""
+        import copy
+
+        if name not in self.layouts:
+            raise KeyError(f"{self.name} has no router layout {name!r}; known: {list(self.layouts)}")
+        fp = copy.copy(self)
+        fp.access_points = list(self.layouts[name][1])
+        fp.layout = name
+        return fp
+
+    @property
+    def layout_label(self) -> str:
+        return self.layouts[self.layout][0]
+
+    @property
+    def max_access_points(self) -> int:
+        """Most access points in any router preset (Gazebo pre-spawns this many AP discs)."""
+        return max(len(aps) for _, aps in self.layouts.values())
 
     # ------------------------------------------------------------ queries
     @property

@@ -69,13 +69,28 @@ def _wall_model(i, seg, material, height, thickness):
     </model>"""
 
 
-def _ap_model(i, ap, height):
+AP_PARKED_Z = -10.0  # unused AP slots wait below the floor
+
+
+def ap_slot_pose(fp: FloorPlan, i: int) -> tuple[float, float, float]:
+    """Where Gazebo's AP disc ``ap_slot_<i>`` belongs for the plan's current router preset."""
+    if i < len(fp.access_points):
+        ap = fp.access_points[i]
+        return ap.x, ap.y, fp.wall_height - 0.1
+    return 0.0, 0.0, AP_PARKED_Z
+
+
+def _ap_model(i, fp: FloorPlan):
+    """AP disc ``ap_slot_<i>``: one per AP of the largest preset, moved when the preset changes."""
     color = theme.ap_color(i)
+    x, y, z = ap_slot_pose(fp, i)
     return f"""
-    <model name="ap_{ap.id}">
-      <static>true</static>
-      <pose>{ap.x:.3f} {ap.y:.3f} {height - 0.1:.3f} 0 0 0</pose>
+    <model name="ap_slot_{i}">
+      <static>false</static>
+      <pose>{x:.3f} {y:.3f} {z:.3f} 0 0 0</pose>
       <link name="link">
+        <gravity>false</gravity>
+        <kinematic>true</kinematic>
         <visual name="body">
           <geometry><cylinder><radius>0.16</radius><length>0.06</length></cylinder></geometry>
           {_material(color, emissive=0.6)}
@@ -383,11 +398,51 @@ def _mover_actor(m: Mover) -> str:
     </actor>"""
 
 
-def world_sdf(fp: FloorPlan) -> str:
+# ------------------------------------------------------------------- camera
+CAMERA_SIZE = (960, 540)  # 3-D view in the Studio window (P0: ~25 fps into Qt)
+
+
+def overview_pose(fp: FloorPlan) -> tuple[float, float, float, float, float]:
+    """The venue's overview camera (x, y, z, pitch, yaw): from ``camera: overview``, else framed from the south."""
+    if len(fp.camera.get("overview", [])) == 5:
+        return tuple(fp.camera["overview"])
+    span = max(fp.width, fp.height * 1.78)
+    return (fp.width / 2, fp.height / 2 - 0.55 * span, 0.62 * span, 0.85, math.pi / 2)
+
+
+def _camera_model(fp: FloorPlan, rate: float = 30.0) -> str:
+    """The Studio's 3-D view: a camera model (``wiloc_camera``) the camera rig moves around."""
+    x, y, z, pitch, yaw = overview_pose(fp)
+    w, h = CAMERA_SIZE
+    return f"""
+    <model name="wiloc_camera">
+      <static>false</static>
+      <pose>{x:.3f} {y:.3f} {z:.3f} 0 {pitch:.4f} {yaw:.4f}</pose>
+      <link name="link">
+        <gravity>false</gravity>
+        <kinematic>true</kinematic>
+        <sensor name="camera" type="camera">
+          <update_rate>{rate:.0f}</update_rate>
+          <camera>
+            <horizontal_fov>1.15</horizontal_fov>
+            <image><width>{w}</width><height>{h}</height><format>R8G8B8</format></image>
+            <clip><near>0.05</near><far>150</far></clip>
+          </camera>
+          <plugin name="wiloc_camera" filename="libgazebo_ros_camera.so">
+            <ros><namespace>/wiloc</namespace></ros>
+            <camera_name>camera</camera_name>
+            <frame_name>wiloc_camera</frame_name>
+          </plugin>
+        </sensor>
+      </link>
+    </model>"""
+
+
+def world_sdf(fp: FloorPlan, camera: bool = True) -> str:
     walls = "".join(
         _wall_model(i, seg, m, fp.wall_height, fp.wall_thickness) for i, (seg, m) in enumerate(zip(fp.walls, fp.wall_materials))
     )
-    aps = "".join(_ap_model(i, ap, fp.wall_height) for i, ap in enumerate(fp.access_points))
+    aps = "".join(_ap_model(i, fp) for i in range(fp.max_access_points))
     furniture = "".join(_furniture_model(i, f) for i, f in enumerate(fp.furniture))
     movers = "".join(_mover_actor(m) for m in fp.movers.movers)
     cx, cy = fp.width / 2, fp.height / 2
@@ -427,7 +482,7 @@ def world_sdf(fp: FloorPlan) -> str:
       <camera name="user_camera">
         <pose>{cx:.2f} {cy - 10.5:.2f} 17.5 0 0.98 1.5708</pose>
       </camera>
-    </gui>{_ground_model(fp)}{_floor_model(fp)}{walls}{furniture}{aps}{movers}
+    </gui>{_ground_model(fp)}{_floor_model(fp)}{walls}{furniture}{aps}{movers}{_camera_model(fp) if camera else ""}
   </world>
 </sdf>
 """

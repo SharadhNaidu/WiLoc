@@ -47,6 +47,24 @@ def test_kidnap_target_is_far_and_free(venue):
         assert np.hypot(*(p - here)) >= 6.0
 
 
+def test_venue_presentation(venue):
+    fp, _ = venue
+    assert fp.title and fp.caption, "every venue needs a title and a one-line caption"
+    assert len(fp.camera.get("overview", [])) == 5
+    assert fp.layout == next(iter(fp.layouts)) and len(fp.layouts) >= 2
+
+
+def test_layouts_switch(venue):
+    fp, _ = venue
+    for name, (label, aps) in fp.layouts.items():
+        g = fp.with_layout(name)
+        assert g.layout == name and g.layout_label == label and [a.id for a in g.access_points] == [a.id for a in aps]
+        assert fp.max_access_points >= len(aps) >= 1
+    assert fp.access_points == list(fp.layouts[fp.layout][1])  # the original is untouched
+    with pytest.raises(KeyError):
+        fp.with_layout("no-such-layout")
+
+
 def test_furniture_parsing():
     f = Furniture.from_dict({"type": "chair", "at": [2.0, 3.0]})
     assert f.rect == pytest.approx((1.76, 2.76, 2.24, 3.24)) and f.height == 0.9

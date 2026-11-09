@@ -71,9 +71,13 @@ class KNN(Estimator):
         self.k, self.weighted, self.p, self.eps = k, weighted, p, eps
         self.name = ("WKNN" if weighted else ("NN" if k == 1 else "KNN")) + (f" (k={k})" if k > 1 else "")
 
+    ap_mask = None  # bool (A,): APs to compare on (None: all); an AP that is off would only mislead
+
     def signal_distance(self, z):
         z = fill_missing(z)
         diff = np.abs(z[:, None, :] - self.rmap.mean[None, :, :])  # (N, R, A)
+        if self.ap_mask is not None and self.ap_mask.any():
+            diff = diff[:, :, self.ap_mask]
         return np.sum(diff**self.p, axis=-1) ** (1.0 / self.p)
 
     def _predict_with_cov(self, z):

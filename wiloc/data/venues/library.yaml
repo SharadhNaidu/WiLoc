@@ -1,0 +1,152 @@
+# A library / open-plan hall, 25 m x 18 m: book stacks, a reading area, glass meeting pods, a staff office.
+name: library
+title: Library
+caption: "A dense grid of routers in an open hall: Wi-Fi at its best, even with a crowd"
+width: 25
+height: 18
+wall_height: 3
+wall_thickness: 0.15
+
+radio:
+  seed: 41
+  path_loss_exponent: 2.0
+  shadowing_sigma_db: 5
+  shadowing_corr_m: 3.0
+  temporal_sigma_db: 3.0
+  sensitivity_dbm: -95.0
+
+walls:
+  - {seg: [0, 0, 25, 0], material: concrete}
+  - {seg: [25, 0, 25, 18], material: concrete}
+  - {seg: [25, 18, 0, 18], material: concrete}
+  - {seg: [0, 18, 0, 0], material: concrete}
+  - {seg: [0, 13, 2.5, 13], material: glass}
+  - {seg: [3.7, 13, 8.5, 13], material: glass}
+  - {seg: [9.7, 13, 14.5, 13], material: glass}
+  - {seg: [15.7, 13, 18, 13], material: glass}
+  - {seg: [6, 13, 6, 18], material: glass}
+  - {seg: [12, 13, 12, 18], material: glass}
+  - {seg: [18, 13, 18, 18], material: brick}
+  - {seg: [18, 13, 21, 13], material: brick}
+  - {seg: [22.2, 13, 25, 13], material: brick}
+  - {seg: [2.5, 2, 2.5, 10], material: wood}
+  - {seg: [5, 2, 5, 10], material: wood}
+  - {seg: [7.5, 2, 7.5, 10], material: wood}
+  - {seg: [10, 2, 10, 10], material: wood}
+
+layout_label: 9 ceiling routers in a grid
+access_points:
+  - {id: G1, x: 4, y: 3, tx_power: 20, channel: 1}
+  - {id: G2, x: 12.5, y: 3, tx_power: 20, channel: 6}
+  - {id: G3, x: 21, y: 3, tx_power: 20, channel: 11}
+  - {id: G4, x: 4, y: 8.5, tx_power: 20, channel: 1}
+  - {id: G5, x: 12.5, y: 8.5, tx_power: 20, channel: 6}
+  - {id: G6, x: 21, y: 8.5, tx_power: 20, channel: 11}
+  - {id: G7, x: 4, y: 15.5, tx_power: 20, channel: 1}
+  - {id: G8, x: 12.5, y: 15.5, tx_power: 20, channel: 6}
+  - {id: G9, x: 21, y: 15.5, tx_power: 20, channel: 11}
+
+ap_layouts:
+  half_off:
+    label: half the routers off
+    access_points:
+      - {id: H1, x: 4, y: 3, tx_power: 20, channel: 1}
+      - {id: H2, x: 21, y: 3, tx_power: 20, channel: 6}
+      - {id: H3, x: 12.5, y: 8.5, tx_power: 20, channel: 11}
+      - {id: H4, x: 4, y: 15.5, tx_power: 20, channel: 1}
+      - {id: H5, x: 21, y: 15.5, tx_power: 20, channel: 6}
+  issue_desk:
+    label: one router at the issue desk
+    access_points:
+      - {id: D1, x: 13.5, y: 1.3, tx_power: 20, channel: 1}
+
+camera:
+  overview: [12.5, -9.75, 23.25, 0.98, 1.571]
+
+start_pose: [1.2, 1.2, 1.571]
+waypoints:
+  - [1.2, 6]
+  - [3.75, 9]
+  - [6.25, 3]
+  - [8.75, 9]
+  - [11, 6]
+  - [3.1, 14]
+  - [9.1, 14]
+  - [15.1, 14]
+  - [21.6, 14.5]
+  - [18, 6.4]
+  - [22, 5.6]
+  - [13.5, 2.4]
+  - [1.2, 1.2]
+
+rooms:
+  - {name: "Pod A", rect: [0, 13, 6, 18]}
+  - {name: "Pod B", rect: [6, 13, 12, 18]}
+  - {name: "Pod C", rect: [12, 13, 18, 18]}
+  - {name: "Staff office", rect: [18, 13, 25, 18]}
+  - {name: "Book stacks", rect: [0, 0, 11.5, 13]}
+  - {name: "Reading area", rect: [11.5, 0, 25, 13]}
+
+furniture:
+  - {type: bookshelf, rect: [2.3, 2, 2.7, 10], height: 3}
+  - {type: bookshelf, rect: [4.8, 2, 5.2, 10], height: 3}
+  - {type: bookshelf, rect: [7.3, 2, 7.7, 10], height: 3}
+  - {type: bookshelf, rect: [9.8, 2, 10.2, 10], height: 3}
+  - {type: meeting_table, rect: [2.2, 15.2, 4.6, 16.2]}
+  - {type: chair, at: [2.8, 14.85], back: s}
+  - {type: chair, at: [3.9, 14.85], back: s}
+  - {type: chair, at: [2.8, 16.55], back: n}
+  - {type: chair, at: [3.9, 16.55], back: n}
+  - {type: meeting_table, rect: [8.2, 15.2, 10.6, 16.2]}
+  - {type: chair, at: [8.8, 14.85], back: s}
+  - {type: chair, at: [9.9, 14.85], back: s}
+  - {type: chair, at: [8.8, 16.55], back: n}
+  - {type: chair, at: [9.9, 16.55], back: n}
+  - {type: meeting_table, rect: [14.2, 15.2, 16.6, 16.2]}
+  - {type: chair, at: [14.8, 14.85], back: s}
+  - {type: chair, at: [15.9, 14.85], back: s}
+  - {type: chair, at: [14.8, 16.55], back: n}
+  - {type: chair, at: [15.9, 16.55], back: n}
+  - {type: table, rect: [15.4, 4, 16.6, 4.8]}
+  - {type: chair, at: [16, 3.75], back: s}
+  - {type: chair, at: [16, 5.05], back: n}
+  - {type: table, rect: [15.4, 8, 16.6, 8.8]}
+  - {type: chair, at: [16, 7.75], back: s}
+  - {type: chair, at: [16, 9.05], back: n}
+  - {type: table, rect: [19.4, 4, 20.6, 4.8]}
+  - {type: chair, at: [20, 3.75], back: s}
+  - {type: chair, at: [20, 5.05], back: n}
+  - {type: table, rect: [19.4, 8, 20.6, 8.8]}
+  - {type: chair, at: [20, 7.75], back: s}
+  - {type: chair, at: [20, 9.05], back: n}
+  - {type: counter, rect: [12, 1, 15, 1.6]}
+  - {type: chair, at: [13.5, 0.6], back: s}
+  - {type: sofa, rect: [24.1, 2.5, 24.95, 4.7], back: e}
+  - {type: sofa, rect: [24.1, 6.5, 24.95, 8.7], back: e}
+  - {type: coffee_table, at: [23.2, 3.6], rotate: true}
+  - {type: coffee_table, at: [23.2, 7.6], rotate: true}
+  - {type: plant, at: [0.5, 0.5]}
+  - {type: plant, at: [24.5, 12.5]}
+  - {type: plant, at: [11.3, 12.5]}
+  - {type: desk, rect: [22.5, 17.1, 24.1, 17.8]}
+  - {type: chair, at: [23.3, 16.7], back: s}
+  - {type: cabinet, rect: [18.2, 15, 18.65, 16.2], height: 1.8}
+  - {type: bookshelf, rect: [24.6, 13.5, 24.95, 15.1]}
+
+kidnap_spots:
+  - [6.25, 6]
+  - [5, 14.2]
+  - [17, 14.2]
+  - [20, 15.5]
+  - [18, 6.4]
+  - [22.5, 11]
+  - [1.2, 1.2]
+  - [11, 9]
+
+movers:
+  - {id: walker_hall, type: person, route: [[1.2, 11.5], [23.5, 11.5]], loop: false, pause: 3}
+  - {id: browser, type: person, route: [[3.75, 2.5], [3.75, 9.5]], loop: false, pause: 5}
+  - {id: to_pod_b, type: person, route: [[9.1, 11.8], [9.1, 14.2], [10.8, 14.4]], loop: false, pause: 6}
+  - {id: librarian, type: person, route: [[13.5, 0.6]], yaw: 1.571, anim: sitting}
+  - {id: reader, type: person, route: [[16, 3.75]], yaw: 1.571, anim: sitting}
+  - {id: pod_a, type: person, route: [[2.8, 16.55]], yaw: -1.571, anim: sitting}

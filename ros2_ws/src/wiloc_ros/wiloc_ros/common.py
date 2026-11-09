@@ -14,10 +14,47 @@ from wiloc.radio import RadioConfig
 RADIO_PARAMS = {"radio_seed": -1, "shadowing_sigma_db": -1.0, "temporal_sigma_db": -1.0}
 
 
-def load_floorplan(name_or_path: str) -> FloorPlan:
-    if name_or_path.endswith((".yaml", ".yml")):
-        return FloorPlan.load(name_or_path)
-    return FloorPlan.builtin(name_or_path)
+def load_floorplan(name_or_path: str, layout: str = "") -> FloorPlan:
+    """A built-in venue by name, or a YAML file; ``layout`` picks a router preset ("" = the first)."""
+    fp = FloorPlan.load(name_or_path) if name_or_path.endswith((".yaml", ".yml")) else FloorPlan.builtin(name_or_path)
+    return fp.with_layout(layout) if layout else fp
+
+
+# Router preset switching: whoever changes the layout publishes its name here,
+# latched, so a node that starts (or respawns) later still gets the current one.
+AP_LAYOUT_TOPIC = "/wiloc/ap_layout"
+# Routers switched off ("unplugged"): latched JSON list of AP ids.
+AP_DISABLED_TOPIC = "/wiloc/ap_disabled"
+
+
+def latched_qos(depth: int = 1):
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+    return QoSProfile(depth=depth, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+
+
+def venue_from_params(node) -> tuple[FloorPlan, FloorPlan]:
+    """(venue with all presets, plan with the ``ap_layout`` preset) from the node's parameters."""
+    for name, default in (("floorplan", "office"), ("ap_layout", "")):
+        if not node.has_parameter(name):
+            node.declare_parameter(name, default)
+    venue = load_floorplan(node.get_parameter("floorplan").value)
+    layout = node.get_parameter("ap_layout").value
+    return venue, venue.with_layout(layout) if layout else venue
+
+
+def subscribe_ap_layout(node, venue: FloorPlan, callback):
+    """Call ``callback(name)`` when another router preset of ``venue`` is published (unknown names are logged)."""
+    from std_msgs.msg import String
+
+    def on_msg(msg):
+        name = msg.data.strip()
+        if name not in venue.layouts:
+            node.get_logger().warn(f"unknown router layout {name!r}; known: {list(venue.layouts)}")
+            return
+        callback(name)
+
+    return node.create_subscription(String, AP_LAYOUT_TOPIC, on_msg, latched_qos())
 
 
 def radio_config(node, fp: FloorPlan) -> RadioConfig:

@@ -128,7 +128,7 @@ def _setup(context):
     lc = lambda n: LaunchConfiguration(n).perform(context)
     is_true = lambda n: lc(n).lower() == "true"
     floorplan = lc("floorplan")
-    fp = load_floorplan(floorplan)
+    fp = load_floorplan(floorplan, lc("ap_layout"))
     world_path = os.path.join(tempfile.gettempdir(), f"wiloc_{fp.name}.world")
     with open(world_path, "w") as f:
         f.write(world_sdf(fp))
@@ -145,7 +145,7 @@ def _setup(context):
     rviz_cfg = _rviz_config(os.path.join(share, "rviz", "wiloc.rviz"), fp, rviz_rect, panel=is_true("rviz_panel"))
     gazebo_launch = os.path.join(get_package_share_directory("gazebo_ros"), "launch", "gazebo.launch.py")
     sim_time = {"use_sim_time": True}
-    common = {"floorplan": floorplan, **sim_time}
+    common = {"floorplan": floorplan, "ap_layout": fp.layout, **sim_time}
     x, y, yaw = fp.start_pose
     qss_path = os.path.join(tempfile.gettempdir(), "wiloc_theme.qss")
     with open(qss_path, "w") as f:
@@ -261,7 +261,16 @@ def _setup(context):
             parameters=[{**common, **radio, "mode": "auto" if is_true("drive") else "manual"}],
             additional_env=dash_env,
             output="screen",
-            condition=IfCondition(lc("dashboard")),
+            condition=IfCondition(str(is_true("dashboard") and lc("ui") == "dashboard")),
+        ),
+        # The Studio normally starts the simulation itself (ros2 run wiloc_ros studio);
+        # ui:=studio runs it inside this launch instead, attached to this simulation.
+        Node(
+            package="wiloc_ros",
+            executable="studio",
+            arguments=["--attach", "--venue", fp.name, "--layout", fp.layout, "--windowed"],
+            output="screen",
+            condition=IfCondition(str(lc("ui") == "studio")),
         ),
         Node(package="rqt_graph", executable="rqt_graph", condition=IfCondition(lc("rqt_graph"))),
     ]
@@ -269,7 +278,9 @@ def _setup(context):
 
 def generate_launch_description():
     args = [
-        ("floorplan", "office", "built-in floor plan name or path to a YAML file"),
+        ("floorplan", "office", "venue: office | home | hospital | warehouse | library | factory, or a YAML file"),
+        ("ap_layout", "", "router preset of the venue (empty: as installed); switch live on /wiloc/ap_layout"),
+        ("ui", "dashboard", "window: dashboard (old) | studio (one-window demo) | none (headless)"),
         ("gui", "true", "start the Gazebo client"),
         ("rviz", "false", "also start RViz (the WiLoc window already shows the live map)"),
         ("rviz_panel", "false", "show RViz's Displays panel"),

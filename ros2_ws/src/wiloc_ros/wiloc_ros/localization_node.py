@@ -51,10 +51,11 @@ from wiloc.fingerprint import DenseRadioMap, RadioMap
 from wiloc.geometry import wrap_angle
 from wiloc.motion import OdometryMotionModel, odom_delta
 from wiloc.cache import cached_maps
+from wiloc.outage import OutageDetector
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, radio_config, run_node, yaw_to_quat
+from .common import pose2d_from_odom, quat_to_yaw, radio_config, run_node, subscribe_ap_layout, venue_from_params, yaw_to_quat
 
 
 METHODS = ("pf", "ekf", "wknn")
@@ -64,7 +65,6 @@ class LocalizationNode(Node):
     def __init__(self):
         super().__init__("wiloc_localization")
         params = {
-            "floorplan": "office",
             "method": "pf",
             "n_particles": 1500,  # fixed count (kld:=false)
             # Particle-filter options; each was measured offline first
@@ -77,6 +77,9 @@ class LocalizationNode(Node):
             # sensor resetting: half the injected particles around the WKNN fix, any heading;
             # with the three above: p90 recovery 8 s, tracking after kidnaps 0.64 -> 0.37 m
             "sensor_reset": 0.5,
+            # unplugged routers: mask an AP silent for 4 scans where the map says it is loud
+            # (python -m wiloc outage: WKNN 4.4 -> 0.8 m, EKF 4.7 -> 0.3 m; the PF is already immune)
+            "outage_detection": True,
             "global_init": False,
             "radio_map": "",
             "map_cache": True,
@@ -101,7 +104,8 @@ class LocalizationNode(Node):
         self.update_min_d, self.update_min_a = float(gp("update_min_d")), float(gp("update_min_a"))
         self.update_max_interval = float(gp("update_max_interval"))
 
-        self.fp = load_floorplan(gp("floorplan"))
+        self.venue, self.fp = venue_from_params(self)
+        self.gp = gp
         self.method = gp("method")
         if self.method not in METHODS:
             raise ValueError(f"method must be one of {METHODS}, not {self.method!r}")
@@ -123,6 +127,7 @@ class LocalizationNode(Node):
             hint_fraction=float(gp("sensor_reset")),
         )
         self.ekf = WifiEKF(mm)
+        self.outage = OutageDetector(self.rmap.n_aps) if gp("outage_detection") else None
         self.global_init = bool(gp("global_init"))
         # A localiser that starts long after the simulation did was respawned
         # after a crash: the robot has moved since, so it must not trust the
@@ -156,6 +161,7 @@ class LocalizationNode(Node):
         self.create_subscription(RssiScan, "/wifi/scan", self.on_scan, 10)
         self.create_subscription(PoseWithCovarianceStamped, "/initialpose", self.on_initialpose, 1)
         self.create_service(Empty, "/wiloc/global_localization", self.on_global)
+        subscribe_ap_layout(self, self.venue, self.set_layout)
         self.create_timer(1.0 / float(gp("publish_rate")), self.on_timer)
         self.get_logger().info(
             f"WiLoc localisation: method={self.method}, {len(self.rmap.positions)} fingerprints, "
@@ -180,6 +186,35 @@ class LocalizationNode(Node):
         how = "loaded from cache" if hit else f"simulated site survey ({spacing} m grid, {samples} scans/RP)"
         self.get_logger().info(f"radio map {how} in {time.monotonic() - t0:.1f} s")
         return rmap, dense
+
+    def set_layout(self, name: str):
+        """Router preset changed: swap in that preset's radio map, keep every filter's pose belief.
+
+        Where the robot is does not depend on where the routers are, so the
+        particles, the EKF state and odometry stay; only the measurement model
+        changes.  (Scans still carrying the old AP ids are ignored until the
+        sensor switches too.)
+        """
+        if name == self.fp.layout:
+            return
+        if self.gp("radio_map"):
+            self.get_logger().warn("a radio_map file is loaded: router layouts cannot be switched")
+            return
+        self.fp = self.venue.with_layout(name)
+        self.rmap, self.dense = self._radio_maps(self.gp)
+        self.fix_est = KNN(int(self.gp("knn_k")), weighted=True).fit(self.rmap)
+        self.pf.map = self.dense
+        self.pf.w_slow = self.pf.w_fast = None  # likelihood scale changes with the AP count
+        self.pf.hint = self.last_fix = None
+        self.pf.n_lost = 0
+        self._apply_mask(None)
+        if self.outage is not None:
+            self.outage.reset(self.rmap.n_aps)
+        self.get_logger().info(f"router layout -> {name}: {self.fp.layout_label} ({self.rmap.n_aps} APs)")
+
+    def _apply_mask(self, usable):
+        self.pf.ap_mask = usable
+        self.fix_est.ap_mask = usable
 
     def reset(self, pose, global_init=False, odom_yaw=None):
         if global_init:
@@ -253,6 +288,15 @@ class LocalizationNode(Node):
         self.pf.sens = float(msg.sensitivity_dbm)
         self.counts["scans"] += 1
         self.propagate()
+        if self.outage is not None:
+            est, cov = self.pf.estimate()
+            mu, sd = self.dense.lookup(est[None, :2])
+            before = self.outage.masked.copy()
+            usable = self.outage.update(z, mu[0], sd[0], self.pf.sens, float(math.sqrt(max(np.trace(cov[:2, :2]), 0.0))))
+            self._apply_mask(None if usable.all() else usable)
+            for j in np.flatnonzero(before != self.outage.masked):
+                ap = self.rmap.ap_ids[j]
+                self.get_logger().info(f"router {ap} {'silent where it should be loud: ignoring it' if self.outage.masked[j] else 'heard again'}")
         xy, cov = self.fix_est.predict_with_cov(z[None])
         self.last_fix = (xy[0], cov[0])
         if not np.isnan(z).all():
@@ -358,6 +402,9 @@ class LocalizationNode(Node):
         spread = float(math.sqrt(max(np.trace(cov), 0.0)))
         status = {
             "method": self.method,
+            "venue": self.fp.name,
+            "layout": self.fp.layout,
+            "masked_aps": [] if self.outage is None else [a for a, m in zip(self.rmap.ap_ids, self.outage.masked) if m],
             "pose": [float(pose[0]), float(pose[1]), float(pose[2])],
             "spread_m": spread,
             "counts": self.counts,

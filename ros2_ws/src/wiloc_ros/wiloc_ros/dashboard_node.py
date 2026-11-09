@@ -51,7 +51,7 @@ from wiloc.radio import RadioSimulator
 from wiloc_msgs.msg import RssiScan
 
 from . import theme
-from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, radio_config, yaw_to_quat
+from .common import pose2d_from_odom, quat_to_yaw, radio_config, venue_from_params, yaw_to_quat
 
 import matplotlib  # noqa: E402
 
@@ -154,11 +154,11 @@ class Track:
 class DashboardNode(Node):
     def __init__(self):
         super().__init__("wiloc_dashboard")
-        self.declare_parameter("floorplan", "office")
         self.declare_parameter("v_max", 0.22)
         self.declare_parameter("w_max", 1.2)
         self.declare_parameter("mode", "auto")
-        self.fp = load_floorplan(self.get_parameter("floorplan").value)
+        # (the start-up router preset only: the Studio UI follows live switches)
+        self.venue, self.fp = venue_from_params(self)
         self.radio_cfg = radio_config(self, self.fp)
         self.grid = OccupancyGrid.from_floorplan(self.fp)
         self.v_max = float(self.get_parameter("v_max").value)

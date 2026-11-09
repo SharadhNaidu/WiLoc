@@ -56,7 +56,16 @@ def main(argv=None):
     fl.add_argument("--runs", type=int, default=8)
     fl.add_argument("--duration", type=float, default=480.0)
 
+    ou = sub.add_parser("outage", help="an unplugged router: each method with and without the outage detector")
+    ou.add_argument("--out", default="results")
+    ou.add_argument("--runs", type=int, default=4)
+
     args = p.parse_args(argv)
+    if args.cmd == "outage":
+        from .exp_outage import exp_outage
+
+        print(json.dumps(exp_outage(args.out, runs=args.runs), indent=2))
+        return
     if args.cmd == "filters":
         from .exp_filters import exp_filters
 
@@ -68,10 +77,12 @@ def main(argv=None):
         from .cache import cache_dir, cached_maps
 
         for name in FloorPlan.builtin_names():
-            fp = FloorPlan.builtin(name)
-            t0 = time.monotonic()
-            _, _, hit = cached_maps(fp, RadioConfig.from_dict(fp.radio))
-            print(f"{name:12s} {'cached' if hit else 'built'} in {time.monotonic() - t0:.1f} s -> {cache_dir()}")
+            venue = FloorPlan.builtin(name)
+            for layout in venue.layouts:
+                fp = venue.with_layout(layout)
+                t0 = time.monotonic()
+                _, _, hit = cached_maps(fp, RadioConfig.from_dict(fp.radio))
+                print(f"{name:10s} {layout:14s} {'cached' if hit else 'built'} in {time.monotonic() - t0:.1f} s -> {cache_dir()}")
         return
     if args.cmd == "plot-eval":
         from .experiments import plot_eval_csv

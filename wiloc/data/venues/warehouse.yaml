@@ -1,0 +1,125 @@
+# A warehouse, 30 m x 20 m: four rows of tall steel racks, a loading dock and a dock office.
+name: warehouse
+title: Warehouse
+caption: "Steel racks block Wi-Fi and every aisle looks the same; forklifts make it worse"
+width: 30
+height: 20
+wall_height: 4.5
+wall_thickness: 0.15
+
+radio:
+  seed: 31
+  path_loss_exponent: 2.0
+  shadowing_sigma_db: 6
+  shadowing_corr_m: 3.0
+  temporal_sigma_db: 3.0
+  sensitivity_dbm: -95.0
+
+walls:
+  - {seg: [0, 0, 30, 0], material: concrete}
+  - {seg: [30, 0, 30, 20], material: concrete}
+  - {seg: [30, 20, 0, 20], material: concrete}
+  - {seg: [0, 20, 0, 0], material: concrete}
+  - {seg: [24, 0, 24, 4.5], material: brick}
+  - {seg: [24, 4.5, 26.5, 4.5], material: brick}
+  - {seg: [27.7, 4.5, 30, 4.5], material: brick}
+  - {seg: [2, 6, 14, 6], material: metal}
+  - {seg: [16, 6, 28, 6], material: metal}
+  - {seg: [2, 9.5, 14, 9.5], material: metal}
+  - {seg: [16, 9.5, 28, 9.5], material: metal}
+  - {seg: [2, 13, 14, 13], material: metal}
+  - {seg: [16, 13, 28, 13], material: metal}
+  - {seg: [2, 16.5, 14, 16.5], material: metal}
+  - {seg: [16, 16.5, 28, 16.5], material: metal}
+
+layout_label: 4 routers high on the outer walls
+access_points:
+  - {id: P1, x: 0.4, y: 10, tx_power: 20, channel: 1}
+  - {id: P2, x: 29.6, y: 10, tx_power: 20, channel: 6}
+  - {id: P3, x: 15, y: 19.6, tx_power: 20, channel: 11}
+  - {id: P4, x: 10, y: 0.4, tx_power: 20, channel: 1}
+
+ap_layouts:
+  aisle_ends:
+    label: 6 routers at the aisle ends
+    access_points:
+      - {id: A1, x: 1, y: 7.75, tx_power: 20, channel: 1}
+      - {id: A2, x: 29, y: 7.75, tx_power: 20, channel: 6}
+      - {id: A3, x: 1, y: 11.25, tx_power: 20, channel: 11}
+      - {id: A4, x: 29, y: 11.25, tx_power: 20, channel: 1}
+      - {id: A5, x: 1, y: 14.75, tx_power: 20, channel: 6}
+      - {id: A6, x: 29, y: 14.75, tx_power: 20, channel: 11}
+  cross_aisle:
+    label: 2 routers over the cross aisle
+    access_points:
+      - {id: X1, x: 15, y: 8, tx_power: 20, channel: 1}
+      - {id: X2, x: 15, y: 15, tx_power: 20, channel: 6}
+
+camera:
+  overview: [15, -10.8, 25.9, 0.98, 1.571]
+
+start_pose: [1, 3, 0]
+waypoints:
+  - [6, 3.5]
+  - [1, 7.75]
+  - [27, 7.75]
+  - [27, 11.25]
+  - [3, 11.25]
+  - [3, 14.75]
+  - [27, 14.75]
+  - [27, 18.5]
+  - [3, 18.5]
+  - [15, 18.5]
+  - [15, 5]
+  - [26.5, 2]
+  - [12, 2.8]
+
+rooms:
+  - {name: "Dock office", rect: [24, 0, 30, 4.5]}
+  - {name: "Loading dock", rect: [0, 0, 30, 5.5]}
+  - {name: "Aisle 1", rect: [0, 6.5, 30, 9]}
+  - {name: "Aisle 2", rect: [0, 10, 30, 12.5]}
+  - {name: "Aisle 3", rect: [0, 13.5, 30, 16]}
+  - {name: "Back aisle", rect: [0, 17, 30, 20]}
+  - {name: Racks, rect: [0, 5.5, 30, 17]}
+
+furniture:
+  - {type: rack, rect: [2, 5.5, 8, 6.5], height: 4.5}
+  - {type: rack, rect: [8, 5.5, 14, 6.5], height: 4.5}
+  - {type: rack, rect: [16, 5.5, 22, 6.5], height: 4.5}
+  - {type: rack, rect: [22, 5.5, 28, 6.5], height: 4.5}
+  - {type: rack, rect: [2, 9, 8, 10], height: 4.5}
+  - {type: rack, rect: [8, 9, 14, 10], height: 4.5}
+  - {type: rack, rect: [16, 9, 22, 10], height: 4.5}
+  - {type: rack, rect: [22, 9, 28, 10], height: 4.5}
+  - {type: rack, rect: [2, 12.5, 8, 13.5], height: 4.5}
+  - {type: rack, rect: [8, 12.5, 14, 13.5], height: 4.5}
+  - {type: rack, rect: [16, 12.5, 22, 13.5], height: 4.5}
+  - {type: rack, rect: [22, 12.5, 28, 13.5], height: 4.5}
+  - {type: rack, rect: [2, 16, 8, 17], height: 4.5}
+  - {type: rack, rect: [8, 16, 14, 17], height: 4.5}
+  - {type: rack, rect: [16, 16, 22, 17], height: 4.5}
+  - {type: rack, rect: [22, 16, 28, 17], height: 4.5}
+  - {type: box, rect: [2, 0.4, 3.2, 1.6]}
+  - {type: box, rect: [3.4, 0.4, 4.6, 1.6], height: 2}
+  - {type: box, rect: [17, 0.4, 18.2, 1.6]}
+  - {type: box, rect: [18.4, 0.4, 19.6, 1.6], height: 1.6}
+  - {type: box, rect: [21, 0.4, 22.2, 1.6]}
+  - {type: desk, rect: [27.9, 3.6, 29.5, 4.3]}
+  - {type: chair, at: [28.7, 3.2], back: s}
+  - {type: cabinet, rect: [24.2, 0.2, 25.4, 0.65], height: 1.8}
+
+kidnap_spots:
+  - [6, 3]
+  - [26.5, 1.8]
+  - [8, 7.75]
+  - [20, 11.25]
+  - [8, 14.75]
+  - [22, 18.5]
+
+movers:
+  - {id: forklift_loop, type: forklift, route: [[1, 7.75], [29, 7.75], [29, 11.25], [1, 11.25]]}
+  - {id: forklift_dock, type: forklift, route: [[5, 3], [15, 3], [15, 14.75], [25, 14.75]], loop: false, pause: 5}
+  - {id: agv_back, type: agv, route: [[1, 18.5], [29, 18.5]], loop: false, pause: 3}
+  - {id: picker, type: person, route: [[27.1, 2], [27.1, 5], [15, 5]], loop: false, pause: 4}
+  - {id: clerk, type: person, route: [[28.7, 3.2]], yaw: 1.571, anim: sitting}
