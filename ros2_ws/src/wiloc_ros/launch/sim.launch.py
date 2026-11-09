@@ -221,7 +221,7 @@ def _setup(context):
         Node(
             package="wiloc_ros",
             executable="evaluator",
-            parameters=[{**common, "output_csv": lc("output_csv")}],
+            parameters=[{**common, "method": lc("method"), "output_csv": lc("output_csv")}],
             output="screen",
             **respawn,
         ),
@@ -273,7 +273,7 @@ def generate_launch_description():
         ("rqt_graph", "false", "also open rqt_graph (ROS's own node graph)"),
         ("tile_windows", "true", "arrange Gazebo / RViz / dashboard to fill the screen"),
         ("ui_font_dpi", "auto", "Qt font DPI for Gazebo/RViz text (auto: 144 on >=2400 px wide screens, else 96)"),
-        ("method", "pf", "pf | ekf | wknn"),
+        ("method", "pf", "primary method: pf | ekf | wknn (all three always run, for the live race)"),
         ("n_particles", "1500", "particle count"),
         ("global_init", "false", "start with no knowledge of the initial pose"),
         ("radio_map", "", "radio map .npz (empty: survey at start-up)"),

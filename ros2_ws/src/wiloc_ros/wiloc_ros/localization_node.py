@@ -3,17 +3,23 @@
 On start-up the node loads a radio map (``radio_map`` .npz from
 ``python -m wiloc survey``) or, if none is given, performs the simulated site
 survey of the venue's radio world itself (cached on disk by ``wiloc.cache``,
-so later starts take well under a second).  It then fuses ``/wheel_odom`` with ``/wifi/scan`` using
+so later starts take well under a second).  It then fuses ``/wheel_odom``
+with ``/wifi/scan`` with three methods side by side, all fed every scan, so
+they can be compared live on the same data ("the race"):
 
-    method = "pf"    particle filter (default)
-             "ekf"   EKF with WKNN position fixes
-             "wknn"  scan-by-scan WKNN, no filtering (baseline)
+    "pf"    particle filter
+    "ekf"   EKF with WKNN position fixes
+    "wknn"  scan-by-scan WKNN, no filtering (baseline)
+
+``method`` picks the primary one, which drives ``/wiloc/pose`` and the
+map -> odom transform.
 
 Publishes
-  /wiloc/pose        geometry_msgs/PoseWithCovarianceStamped   (map frame)
-  /wiloc/particles   geometry_msgs/PoseArray                   (pf only)
+  /wiloc/pose        geometry_msgs/PoseWithCovarianceStamped   primary method (map frame)
+  /wiloc/pose/pf, /wiloc/pose/ekf, /wiloc/pose/wknn            every method
+  /wiloc/particles   geometry_msgs/PoseArray
   /wiloc/wifi_fix    geometry_msgs/PoseWithCovarianceStamped   raw WKNN fix
-  /wiloc/path        nav_msgs/Path
+  /wiloc/path        nav_msgs/Path   primary method, 1 Hz, last 10 min
   /wiloc/status      std_msgs/String  JSON: filter internals + radio-map
                      prediction at the estimate (for the dashboard)
   /wiloc/hud         visualization_msgs/MarkerArray  status text for RViz
@@ -51,6 +57,9 @@ from . import theme
 from .common import load_floorplan, pose2d_from_odom, quat_to_yaw, radio_config, run_node, yaw_to_quat
 
 
+METHODS = ("pf", "ekf", "wknn")
+
+
 class LocalizationNode(Node):
     def __init__(self):
         super().__init__("wiloc_localization")
@@ -84,6 +93,8 @@ class LocalizationNode(Node):
 
         self.fp = load_floorplan(gp("floorplan"))
         self.method = gp("method")
+        if self.method not in METHODS:
+            raise ValueError(f"method must be one of {METHODS}, not {self.method!r}")
         self.radio_cfg = radio_config(self, self.fp)
         self.rmap, self.dense = self._radio_maps(gp)
         self.fix_est = KNN(int(gp("knn_k")), weighted=True).fit(self.rmap)
@@ -110,6 +121,7 @@ class LocalizationNode(Node):
         self.reset(np.array(self.fp.start_pose, dtype=float), self.global_init, odom_yaw=0.0)
 
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, "/wiloc/pose", 10)
+        self.method_pubs = {m: self.create_publisher(PoseWithCovarianceStamped, f"/wiloc/pose/{m}", 10) for m in METHODS}
         self.fix_pub = self.create_publisher(PoseWithCovarianceStamped, "/wiloc/wifi_fix", 10)
         self.cloud_pub = self.create_publisher(PoseArray, "/wiloc/particles", 5)
         self.path_pub = self.create_publisher(Path, "/wiloc/path", 5)
@@ -118,6 +130,7 @@ class LocalizationNode(Node):
         self.tf = TransformBroadcaster(self)
         self.path = Path()
         self.path.header.frame_id = "map"
+        self.last_path_t = -1e9
 
         self.create_subscription(Odometry, "/wheel_odom", self.on_odom, 50)
         self.create_subscription(RssiScan, "/wifi/scan", self.on_scan, 10)
@@ -172,10 +185,8 @@ class LocalizationNode(Node):
         if abs(d[1]) < 0.005 and abs(d[0]) + abs(d[2]) < 0.005:
             return
         self.used_odom = self.odom_pose.copy()
-        if self.method == "pf":
-            self.pf.predict(d)
-        elif self.method == "ekf":
-            self.ekf.predict(d)
+        self.pf.predict(d)
+        self.ekf.predict(d)
 
     def _should_update(self) -> bool:
         """AMCL-style gating: re-weight particles after the robot has moved.
@@ -223,21 +234,18 @@ class LocalizationNode(Node):
         xy, cov = self.fix_est.predict_with_cov(z[None])
         self.last_fix = (xy[0], cov[0])
         self.last_scan = z
-        if self.method == "pf":
-            if self._should_update():
-                self.pf.update(z)
-                self.counts["updates"] += 1
-                self.last_update_t = self.get_clock().now().nanoseconds * 1e-9
-                self.update_odom = None if self.odom_pose is None else self.odom_pose.copy()
-            else:
-                self.counts["skipped_stationary"] += 1
-        elif self.method == "ekf":
-            if not np.isnan(z).all():
-                self.ekf.update_position(xy[0], cov[0])
-                self.counts["updates"] += 1
-        else:
-            self.wknn_pose[:2] = xy[0]
+        # The motion gate is the particle filter's (see _should_update); the
+        # EKF gates its own updates (chi-square) and WKNN has no memory.
+        if self._should_update():
+            self.pf.update(z)
             self.counts["updates"] += 1
+            self.last_update_t = self.get_clock().now().nanoseconds * 1e-9
+            self.update_odom = None if self.odom_pose is None else self.odom_pose.copy()
+        else:
+            self.counts["skipped_stationary"] += 1
+        if not np.isnan(z).all():
+            self.ekf.update_position(xy[0], cov[0])
+            self.wknn_pose[:2] = xy[0]
         self.publish_fix(msg.header.stamp)
 
     def on_initialpose(self, msg):
@@ -252,10 +260,11 @@ class LocalizationNode(Node):
         return resp
 
     # ---------------------------------------------------------- output
-    def current_estimate(self):
-        if self.method == "pf":
+    def current_estimate(self, method=None):
+        method = method or self.method
+        if method == "pf":
             pose, cov = self.pf.estimate()
-        elif self.method == "ekf":
+        elif method == "ekf":
             pose, cov = self.ekf.estimate()
         else:
             pose = self.wknn_pose.copy()
@@ -264,38 +273,47 @@ class LocalizationNode(Node):
             cov = self.last_fix[1] if self.last_fix else np.eye(2)
         return pose, cov
 
-    def on_timer(self):
-        self.propagate()
-        pose, cov = self.current_estimate()
-        now = self.get_clock().now().to_msg()
-
+    @staticmethod
+    def _pose_msg(pose, cov, stamp):
         msg = PoseWithCovarianceStamped()
-        msg.header.stamp, msg.header.frame_id = now, "map"
+        msg.header.stamp, msg.header.frame_id = stamp, "map"
         msg.pose.pose.position.x, msg.pose.pose.position.y = float(pose[0]), float(pose[1])
         msg.pose.pose.orientation = yaw_to_quat(float(pose[2]))
         c = np.zeros(36)
         c[0], c[1], c[6], c[7] = cov[0, 0], cov[0, 1], cov[1, 0], cov[1, 1]
         c[35] = 0.1
         msg.pose.covariance = c.tolist()
+        return msg
+
+    def on_timer(self):
+        self.propagate()
+        now = self.get_clock().now().to_msg()
+        estimates = {m: self.current_estimate(m) for m in METHODS}
+        for m, (p, c) in estimates.items():
+            self.method_pubs[m].publish(self._pose_msg(p, c, now))
+        pose, cov = estimates[self.method]
+        msg = self._pose_msg(pose, cov, now)
         self.pose_pub.publish(msg)
 
-        ps = PoseStamped()
-        ps.header, ps.pose = msg.header, msg.pose.pose
-        self.path.header.stamp = now
-        self.path.poses.append(ps)
-        self.path.poses = self.path.poses[-3000:]
-        self.path_pub.publish(self.path)
+        t = self.get_clock().now().nanoseconds * 1e-9
+        if t - self.last_path_t >= 1.0:
+            self.last_path_t = t
+            ps = PoseStamped()
+            ps.header, ps.pose = msg.header, msg.pose.pose
+            self.path.header.stamp = now
+            self.path.poses.append(ps)
+            self.path.poses = self.path.poses[-600:]
+            self.path_pub.publish(self.path)
 
-        if self.method == "pf":
-            arr = PoseArray()
-            arr.header = msg.header
-            step = max(1, self.pf.n // 400)
-            for x, y, th in self.pf.particles[::step]:
-                p = Pose()
-                p.position.x, p.position.y = float(x), float(y)
-                p.orientation = yaw_to_quat(float(th))
-                arr.poses.append(p)
-            self.cloud_pub.publish(arr)
+        arr = PoseArray()
+        arr.header = msg.header
+        step = max(1, self.pf.n // 400)
+        for x, y, th in self.pf.particles[::step]:
+            p = Pose()
+            p.position.x, p.position.y = float(x), float(y)
+            p.orientation = yaw_to_quat(float(th))
+            arr.poses.append(p)
+        self.cloud_pub.publish(arr)
 
         if self.odom_pose is not None:
             # map->odom = T(map->base) * T(odom->base)^-1
@@ -309,9 +327,9 @@ class LocalizationNode(Node):
             t.transform.rotation = yaw_to_quat(yaw)
             self.tf.sendTransform(t)
 
-        self.publish_status(pose, cov, now)
+        self.publish_status(pose, cov, now, estimates)
 
-    def publish_status(self, pose, cov, stamp):
+    def publish_status(self, pose, cov, stamp, estimates):
         mu, sd = self.dense.lookup(pose[None, :2])
         spread = float(math.sqrt(max(np.trace(cov), 0.0)))
         status = {
@@ -323,17 +341,18 @@ class LocalizationNode(Node):
             "map_rssi_at_estimate": [float(v) for v in mu[0]],
             "map_std_at_estimate": [float(v) for v in sd[0]],
             "fix": None if self.last_fix is None else [float(self.last_fix[0][0]), float(self.last_fix[0][1])],
+            # every method: x, y, yaw and 1-sigma position spread
+            "estimates": {
+                m: [float(p[0]), float(p[1]), float(p[2]), float(math.sqrt(max(np.trace(c[:2, :2]), 0.0)))]
+                for m, (p, c) in estimates.items()
+            },
+            # particle filter internals (it always runs)
+            "n_particles": self.pf.n,
+            "ess": float(self.pf.ess()),
+            "resamples": self.pf.n_resamples,
+            "injected": self.pf.n_injected,
+            "w_ratio": float(self.pf.w_fast / self.pf.w_slow) if self.pf.w_slow else 1.0,
         }
-        if self.method == "pf":
-            status.update(
-                {
-                    "n_particles": self.pf.n,
-                    "ess": float(self.pf.ess()),
-                    "resamples": self.pf.n_resamples,
-                    "injected": self.pf.n_injected,
-                    "w_ratio": float(self.pf.w_fast / self.pf.w_slow) if self.pf.w_slow else 1.0,
-                }
-            )
         self.status_pub.publish(String(data=json.dumps(status)))
 
         hud = Marker()
@@ -346,8 +365,7 @@ class LocalizationNode(Node):
         hud.color = ColorRGBA(r=r, g=g, b=b, a=1.0)
         name = {"pf": "Particle filter", "ekf": "EKF", "wknn": "WKNN (no filter)"}.get(self.method, self.method)
         text = f"{name}  |  pose ({pose[0]:.2f}, {pose[1]:.2f}, {math.degrees(pose[2]):.0f} deg)  |  sigma {spread:.2f} m"
-        if self.method == "pf":
-            text += f"  |  N_eff {status['ess']:.0f}/{self.pf.n}"
+        text += f"  |  N_eff {status['ess']:.0f}/{self.pf.n}"
         text += f"  |  Wi-Fi updates {self.counts['updates']}"
         hud.text = text
         arr = MarkerArray()
