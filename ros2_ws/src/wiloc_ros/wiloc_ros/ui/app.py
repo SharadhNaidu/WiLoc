@@ -585,6 +585,15 @@ def main(argv=None):
     p.add_argument("--no-overlay", action="store_true", help=argparse.SUPPRESS)  # layout reviews without a simulation
     a, _ = p.parse_known_args(argv if argv is not None else sys.argv[1:])
 
+    if "ROS_LOCALHOST_ONLY" not in os.environ:
+        is_wsl = False
+        try:
+            with open("/proc/version", "r") as f:
+                is_wsl = "microsoft" in f.read().lower()
+        except OSError:
+            pass
+        os.environ["ROS_LOCALHOST_ONLY"] = "0" if is_wsl else "1"
+
     rclpy.init(args=None, signal_handler_options=SignalHandlerOptions.NO)
     venue = FloorPlan.builtin(a.venue, a.layout or None)
     bridge = Bridge(venue)
@@ -640,8 +649,18 @@ def main(argv=None):
 
     app.exec_()
     backend.stop()
-    executor.shutdown(timeout_sec=1.0)
-    bridge.destroy_node()
+    try:
+        executor.cancel()
+    except Exception:
+        pass
+    try:
+        executor.shutdown(timeout_sec=1.0)
+    except Exception:
+        pass
+    try:
+        bridge.destroy_node()
+    except Exception:
+        pass
     rclpy.try_shutdown()
 
 
