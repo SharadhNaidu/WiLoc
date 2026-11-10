@@ -240,11 +240,12 @@ cd ~/WiLoc && git pull && ./wiloc.sh build && ./wiloc.sh run
 | `ROS 2 Humble not found` | ROS 2 Humble is not installed. Ask the team. |
 | The 3-D view stays **grey or black**, or the window closes (common in virtual machines) | Quit, then start with `./wiloc.sh run --software-gl` |
 | Everything is **very slow** | Close other programs. In a VM, give it 4+ CPUs and 8 GB+ memory. |
-| "Starting WiLoc…" for more than a minute | Quit, run `./wiloc.sh stop`, wait 5 seconds, then `./wiloc.sh run` again. |
+| "Starting WiLoc…" or "Trying again…" for more than a minute | Wait: WiLoc retries by itself (up to 3 times, switching to software graphics if Gazebo crashed). If it then says **"WiLoc could not start the simulation"**, it shows the reason. Quit, run `./wiloc.sh check`, and send the team its output and the file `~/wiloc_runs/studio_backend.log`. |
 | Your own `ros2 topic list` in another terminal shows nothing | WiLoc keeps ROS traffic on this computer. Run `export ROS_LOCALHOST_ONLY=1` in that terminal first. |
 | Errors after `git pull` | Run `rm -rf ~/wiloc_ws && ./wiloc.sh build`, then `./wiloc.sh run`. |
 
-Still stuck? Send the team a photo of the terminal showing the error.
+Still stuck? Send the team a photo of the terminal showing the error, and the
+file `~/wiloc_runs/studio_backend.log` (the simulation's own log).
 
 ---
 

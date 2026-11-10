@@ -64,14 +64,25 @@ def main(argv=None):
         backend.start(venue.name, venue.layout)
         if not a.attach:
             bridge.set_layout(venue.layout)
-        up = None
+        up = problem = None
         while time.monotonic() - t0 < a.startup:
             s = bridge.snapshot()
             if s.truth is not None and s.status and "pf" in s.poses:
                 up = time.monotonic() - t0
                 break
+            problem = backend.problem()
+            if problem is not None or not backend.running:
+                break
             time.sleep(0.5)
-        report("simulation starts", up is not None, f"{up:.0f} s" if up else f"nothing after {a.startup:.0f} s")
+        if up is not None:
+            detail = f"{up:.0f} s"
+        elif problem is not None:
+            detail = problem.reason + (" Try: ./wiloc.sh check --software-gl" if problem.graphics and not backend.software_gl else "")
+        elif not backend.running:
+            detail = "the simulation stopped while starting"
+        else:
+            detail = f"nothing after {a.startup:.0f} s"
+        report("simulation starts", up is not None, detail)
         if up is None:
             return 1
         time.sleep(a.settle)

@@ -38,12 +38,14 @@ from wiloc.environment import FloorPlan
 from wiloc.story import AttractMode, RecoveryClock, merge_modes, tour_stops
 
 from . import style as S
-from .backend import Backend
+from .backend import LOG_PATH, Backend
 from .bridge import Bridge
 from .map_view import MapView
 from .recorder import Recorder
 from .panels import Card, CameraView, ChipRow, Header, Leaderboard, Overlay, Pill, RaceChart, Toast
 
+START_ATTEMPTS = 3  # tries to bring a venue's simulation up before showing why it failed
+START_TIMEOUT = 90.0  # s without the robot and localiser showing up: count the try as failed (normally < 10 s)
 TELEOP_KEYS = {
     QtCore.Qt.Key_Up: "fwd", QtCore.Qt.Key_W: "fwd", QtCore.Qt.Key_Down: "back", QtCore.Qt.Key_S: "back",
     QtCore.Qt.Key_Left: "left", QtCore.Qt.Key_A: "left", QtCore.Qt.Key_Right: "right", QtCore.Qt.Key_D: "right",
@@ -95,6 +97,8 @@ class Studio(QtWidgets.QWidget):
         self.last_kidnaps = 0
         self.switching = None  # venue being loaded
         self.switch_t = 0.0
+        self.attempt = 1  # of START_ATTEMPTS, for the venue being loaded
+        self.gave_up = False  # every attempt failed: the overlay says why
         self.ready = False
         self.body_on = True
         self.manual = False
@@ -242,7 +246,7 @@ class Studio(QtWidgets.QWidget):
         self.rescale()
 
     def switch_venue(self, name: str, layout: str | None = None):
-        if self.switching or name == self.venue.name:
+        if (self.switching and not self.gave_up) or name == self.venue.name:
             self.venue_chips.select(self.venue.name)
             if not self.switching and layout and layout in self.venue.layouts:
                 self.layout_chips.select(layout)
@@ -255,13 +259,18 @@ class Studio(QtWidgets.QWidget):
             QtCore.QTimer.singleShot(3000, self.overlay.hide)
             return
         venue = FloorPlan.builtin(name, layout if layout in FloorPlan.builtin(name).layouts else None)
-        self.switching, self.switch_t = name, time.monotonic()
+        self.begin_loading(name)
         self.overlay.show_message(f"Loading {venue.title}…", venue.caption)
         self._load_venue(venue)
         # the old venue's latched choices would otherwise reach the new simulation
         self.bridge.set_layout(venue.layout)
         self._set_disabled(set())
-        threading.Thread(target=self.backend.start, args=(name, venue.layout), daemon=True).start()
+        self.backend.start_async(name, venue.layout)
+
+    def begin_loading(self, name: str):
+        """A venue's simulation is (re)starting: the overlay stays until it is up (``frame``) or has failed (``watchdog``)."""
+        self.switching, self.switch_t = name, time.monotonic()
+        self.attempt, self.gave_up = 1, False
 
     def switch_layout(self, name: str):
         if name == self.bridge.fp.layout:
@@ -455,11 +464,9 @@ class Studio(QtWidgets.QWidget):
         self.chart.add(time.monotonic(), errs)
 
     def watchdog(self):
-        self.run_attract()
-        if self.switching:
-            if time.monotonic() - self.switch_t > 90:
-                self.overlay.show_message("Still loading…", "The simulation is taking longer than usual.")
+        if self.backend.closed:
             return
+        self.run_attract()
         snap = self.bridge.snapshot()
         silent = snap.clock_wall is None or time.monotonic() - snap.clock_wall > 8.0
         if self.backend.attach:
@@ -468,21 +475,60 @@ class Studio(QtWidgets.QWidget):
             elif not silent and self.overlay.isVisible() and self.ready:
                 self.overlay.hide()
             return
-        started_long_ago = self.backend.started_at and time.monotonic() - self.backend.started_at > 60
-        if not self.backend.running or (silent and started_long_ago):
-            self.switching, self.switch_t = self.venue.name, time.monotonic()
-            self.overlay.show_message("Restarting the simulation…", "Back in a few seconds.")
+        if self.switching:
+            self._watch_startup()
+            return
+        # running: restart a simulation that died or went quiet
+        problem = self.backend.problem()
+        if not self.backend.running or problem is not None or silent:
+            self.begin_loading(self.venue.name)
+            self.overlay.show_message("Restarting the simulation…", problem.reason if problem else "Back in a few seconds.")
             self._load_venue(self.venue)
-            threading.Thread(target=self.backend.restart, daemon=True).start()
+            self.backend.start_async(self.venue.name, self.venue.layout, restart=True)
+
+    def _watch_startup(self):
+        """While a venue loads: retry a run that failed (software graphics if Gazebo crashed), then say why."""
+        if self.gave_up or self.backend.starting:
+            return
+        since = time.monotonic() - (self.backend.started_at or self.switch_t)
+        problem = self.backend.problem()
+        if problem is None and self.backend.running and since <= START_TIMEOUT:
+            if since > 45:
+                self.overlay.show_message("Still loading…", f"The simulation is taking longer than usual ({since:.0f} s).")
+            return
+        if problem is not None:
+            why = problem.reason
+        elif not self.backend.running:
+            why = "The simulation stopped while starting."
+        else:
+            why = f"Nothing from the simulation after {since:.0f} s."
+        if self.attempt < START_ATTEMPTS:
+            self.attempt += 1
+            # Gazebo that crashed or hangs (stuck creating its 3-D renderer, typical in VMs): software graphics
+            graphics = problem.graphics if problem is not None else self.backend.running
+            if graphics and not self.backend.software_gl:
+                self.backend.software_gl = True
+                why += " Trying again with software graphics (slower, but works without a 3-D graphics driver)."
+            self.overlay.show_message(f"Trying again… (attempt {self.attempt} of {START_ATTEMPTS})", why)
+            self.backend.start_async(self.venue.name, self.venue.layout, restart=True)
+            return
+        self.gave_up = True
+        log = LOG_PATH.replace(os.path.expanduser("~"), "~", 1)
+        self.overlay.show_message(
+            "WiLoc could not start the simulation",
+            f"{why}\n\nPress Ctrl+Shift+Q to quit, then send the file {log} to the team.",
+            busy=False,
+        )
 
     def closeEvent(self, e):
         if self.recorder is not None:
             rec, self.recorder = self.recorder, None
             path = rec.stop()
             print(f"[studio] video: {path} ({rec.written} frames, {rec.dropped} dropped)", flush=True)
+        self.backend.closed = True  # before processEvents: the watchdog must not restart what we stop
         self.overlay.show_message("Stopping…")
         QtWidgets.QApplication.processEvents()
-        self.backend.stop()
+        self.backend.shutdown()
         super().closeEvent(e)
 
 
@@ -568,7 +614,8 @@ def main(argv=None):
     if not a.no_overlay:
         win.overlay.show_message("Starting WiLoc…", venue.caption)
     if not a.attach:  # a fresh simulation: make its router preset the latched one
-        threading.Thread(target=backend.start, args=(venue.name, venue.layout), daemon=True).start()
+        win.begin_loading(venue.name)
+        backend.start_async(venue.name, venue.layout)
         bridge.set_layout(venue.layout)
 
     signal.signal(signal.SIGINT, lambda *_: (win.close(), app.quit()))

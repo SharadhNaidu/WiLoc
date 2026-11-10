@@ -539,12 +539,14 @@ class Overlay(QtWidgets.QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.text, self.sub = "", ""
+        self.busy = True  # animated dots; False: a message that waits for the person
         self.t0 = time.monotonic()
         self.hide()
 
-    def show_message(self, text, sub=""):
-        self.text, self.sub = text, sub
-        self.t0 = time.monotonic()
+    def show_message(self, text, sub="", busy=True):
+        if not (self.isVisible() and (text, busy) == (self.text, self.busy)):
+            self.t0 = time.monotonic()  # a repeated message keeps its animation running smoothly
+        self.text, self.sub, self.busy = text, sub, busy
         self.setGeometry(self.parent().rect())
         self.show()
         self.raise_()
@@ -553,17 +555,23 @@ class Overlay(QtWidgets.QWidget):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.fillRect(self.rect(), S.qcolor(S.IVORY, 0.88))
-        w, h = S.px(520), S.px(170)
+        w = S.px(560)
+        flags = QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop | QtCore.Qt.TextWordWrap
+        sub_font = S.font(14)
+        sub_h = QtGui.QFontMetrics(sub_font).boundingRect(QtCore.QRect(0, 0, w - S.px(40), 10000), int(flags), self.sub).height()
+        h = S.px(72) + sub_h + S.px(70 if self.busy else 34)
         r = QtCore.QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
         p.setPen(QtGui.QPen(QtGui.QColor(S.HAIRLINE), 1))
         p.setBrush(QtGui.QColor(S.CARD))
         p.drawRoundedRect(r, S.px(18), S.px(18))
         p.setFont(S.font(22, S.SEMIBOLD))
         p.setPen(QtGui.QColor(S.INK))
-        p.drawText(r.adjusted(0, S.px(30), 0, -S.px(80)), QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop, self.text)
-        p.setFont(S.font(14))
+        p.drawText(r.adjusted(0, S.px(30), 0, 0), QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop, self.text)
+        p.setFont(sub_font)
         p.setPen(QtGui.QColor(S.MUTED))
-        p.drawText(r.adjusted(S.px(20), S.px(72), -S.px(20), -S.px(40)), QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop | QtCore.Qt.TextWordWrap, self.sub)
+        p.drawText(r.adjusted(S.px(20), S.px(72), -S.px(20), 0), flags, self.sub)
+        if not self.busy:
+            return
         # three dots
         ph = (time.monotonic() - self.t0) * 2.2
         for i in range(3):
