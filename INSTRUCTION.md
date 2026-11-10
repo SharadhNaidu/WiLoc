@@ -15,8 +15,9 @@ wheel turns.
 
 You need:
 
-* **Ubuntu 22.04**. A virtual machine (VirtualBox or VMware) is fine.
-* **ROS 2 Humble**. Your VM probably has it already.
+* **Ubuntu 22.04**. A virtual machine (VirtualBox or VMware) or **WSL 2** on Windows is fine.
+  * *Windows WSL users:* Ensure you use **Ubuntu-22.04** (not Ubuntu 24.04). If you have both, run `wsl -d Ubuntu-22.04` from PowerShell to enter it.
+* **ROS 2 Humble**. Your VM or Ubuntu 22.04 WSL distro probably has it already.
 
 **Open a terminal:** press **Ctrl + Alt + T** at the same time. A window with
 a black or purple background opens. This is the terminal; you type or paste
@@ -237,11 +238,11 @@ cd ~/WiLoc && git pull && ./wiloc.sh build && ./wiloc.sh run
 | What you see | What to do |
 |---|---|
 | `Permission denied` when running `./wiloc.sh` | Run `chmod +x wiloc.sh`, then try again. |
-| `ROS 2 Humble not found` | ROS 2 Humble is not installed. Ask the team. |
+| `ROS 2 Humble not found` | On Windows WSL, you might be in Ubuntu 24.04 instead of 22.04. In PowerShell run `wsl -d Ubuntu-22.04` and run `./wiloc.sh` there. Otherwise install ROS 2 Humble. |
 | The 3-D view stays **grey or black**, or the window closes (common in virtual machines) | Quit, then start with `./wiloc.sh run --software-gl` |
 | Everything is **very slow** | Close other programs. In a VM, give it 4+ CPUs and 8 GB+ memory. |
 | "Starting WiLoc…" or "Trying again…" for more than a minute | Wait: WiLoc retries by itself (up to 3 times, switching to software graphics if Gazebo crashed). If it then says **"WiLoc could not start the simulation"**, it shows the reason. Quit, run `./wiloc.sh check`, and send the team its output and the file `~/wiloc_runs/studio_backend.log`. |
-| Your own `ros2 topic list` in another terminal shows nothing | WiLoc keeps ROS traffic on this computer. Run `export ROS_LOCALHOST_ONLY=1` in that terminal first. |
+| Your own `ros2 topic list` in another terminal shows nothing | WiLoc keeps ROS traffic on this computer. Run `export ROS_LOCALHOST_ONLY=0` (in WSL) or `export ROS_LOCALHOST_ONLY=1` (in native Ubuntu) in that terminal first. |
 | Errors after `git pull` | Run `rm -rf ~/wiloc_ws && ./wiloc.sh build`, then `./wiloc.sh run`. |
 
 Still stuck? Send the team a photo of the terminal showing the error, and the

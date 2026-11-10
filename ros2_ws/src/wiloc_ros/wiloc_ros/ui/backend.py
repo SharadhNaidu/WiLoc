@@ -102,14 +102,19 @@ class Backend:
                     return
                 self._stop()
                 os.makedirs(LOG_DIR, exist_ok=True)
+                has_lh = any(a.startswith("localhost_only:=") for a in self.launch_args)
+                lh_arg = [] if has_lh else [f"localhost_only:={'true' if os.environ.get('ROS_LOCALHOST_ONLY') == '1' else 'false'}"]
                 cmd = [
                     "ros2", "launch", "wiloc_ros", "sim.launch.py",
                     "ui:=none", "gui:=false", "rviz:=false",
                     f"floorplan:={venue}", f"ap_layout:={layout}",
+                    *lh_arg,
                     *self.launch_args,
                 ]
                 # unbuffered: problem() reads the log while the launch runs
                 env = dict(os.environ, GAZEBO_MODEL_DATABASE_URI="", PYTHONUNBUFFERED="1")
+                if "ROS_LOCALHOST_ONLY" in os.environ:
+                    env["ROS_LOCALHOST_ONLY"] = os.environ["ROS_LOCALHOST_ONLY"]
                 if self.software_gl:
                     env["LIBGL_ALWAYS_SOFTWARE"] = "1"
                 log = open(LOG_PATH, "a")

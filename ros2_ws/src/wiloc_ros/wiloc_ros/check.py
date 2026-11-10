@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import sys
 import threading
 import time
@@ -34,6 +35,13 @@ def _pf_error(snap):
 
 
 def main(argv=None):
+    is_wsl = False
+    try:
+        with open("/proc/version", "r") as f:
+            is_wsl = "microsoft" in f.read().lower()
+    except OSError:
+        pass
+
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--venue", default="office")
     p.add_argument("--layout", default="")
@@ -42,15 +50,21 @@ def main(argv=None):
     p.add_argument("--track", type=float, default=40.0, help="seconds of tracking to measure")
     p.add_argument("--max-error", type=float, default=0.6, help="max PF median error (m)")
     p.add_argument("--max-recovery", type=float, default=45.0, help="max seconds to re-find after a kidnap")
+    p.add_argument("--min-fps", type=float, default=4.0 if is_wsl else 10.0, help="min camera frames/s")
+    p.add_argument("--min-rtf", type=float, default=0.5 if is_wsl else 0.8, help="min simulation speed (x real time)")
     p.add_argument("--attach", action="store_true", help="check an already running simulation")
     a, _ = p.parse_known_args(argv if argv is not None else sys.argv[1:])
+
+    if "ROS_LOCALHOST_ONLY" not in os.environ:
+        os.environ["ROS_LOCALHOST_ONLY"] = "0" if is_wsl else "1"
 
     rclpy.init(args=None)
     venue = FloorPlan.builtin(a.venue, a.layout or None)
     bridge = Bridge(venue)
     ex = SingleThreadedExecutor()
     ex.add_node(bridge)
-    threading.Thread(target=ex.spin, daemon=True).start()
+    spin_thread = threading.Thread(target=ex.spin, daemon=True)
+    spin_thread.start()
     backend = Backend(attach=a.attach, launch_args=[])
     results = []
 
@@ -100,8 +114,8 @@ def main(argv=None):
         fps = (s1.image_count - n0) / wall
         rtf = (s1.sim_t - sim0) / wall if s1.sim_t is not None and sim0 is not None else 0.0
         med = float(np.median(errs)) if errs else float("inf")
-        report("3-D view camera", fps >= 10.0, f"{fps:.1f} frames/s")
-        report("simulation speed", rtf >= 0.8, f"{rtf:.2f} x real time")
+        report("3-D view camera", fps >= a.min_fps, f"{fps:.1f} frames/s")
+        report("simulation speed", rtf >= a.min_rtf, f"{rtf:.2f} x real time")
         report("particle filter tracks the robot", med <= a.max_error,
                f"median error {med:.2f} m, 90 % {np.percentile(errs, 90):.2f} m" if errs else "no estimates")
 
@@ -118,8 +132,22 @@ def main(argv=None):
                f"{took:.1f} s" if took is not None else ("teleport failed" if not where else f"not within {a.max_recovery:.0f} s"))
     finally:
         backend.stop()
-        ex.shutdown(timeout_sec=1.0)
-        bridge.destroy_node()
+        try:
+            ex.cancel()
+        except Exception:
+            pass
+        try:
+            ex.shutdown(timeout_sec=0.5)
+        except Exception:
+            pass
+        try:
+            spin_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        try:
+            bridge.destroy_node()
+        except Exception:
+            pass
         rclpy.try_shutdown()
     ok = all(results)
     print("WiLoc check:", "all good" if ok else "PROBLEMS (see above)", flush=True)

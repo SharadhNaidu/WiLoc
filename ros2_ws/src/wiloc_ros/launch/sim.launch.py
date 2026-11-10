@@ -123,6 +123,8 @@ def _setup(context):
     if is_true("localhost_only"):
         # Ignore other ROS 2 users on the same network (another stand, a lab).
         env.append(SetEnvironmentVariable("ROS_LOCALHOST_ONLY", "1"))
+    else:
+        env.append(SetEnvironmentVariable("ROS_LOCALHOST_ONLY", "0"))
 
     return env + [
         IncludeLaunchDescription(
@@ -226,6 +228,18 @@ def _setup(context):
 
 
 def generate_launch_description():
+    default_localhost = os.environ.get("ROS_LOCALHOST_ONLY")
+    if default_localhost is None:
+        is_wsl = False
+        try:
+            with open("/proc/version", "r") as f:
+                is_wsl = "microsoft" in f.read().lower()
+        except OSError:
+            pass
+        default_localhost = "false" if is_wsl else "true"
+    else:
+        default_localhost = "true" if default_localhost == "1" else "false"
+
     args = [
         ("floorplan", "office", "venue: office | home | hospital | warehouse | library | factory, or a YAML file"),
         ("ap_layout", "", "router preset of the venue (empty: as installed); switch live on /wiloc/ap_layout"),
@@ -245,7 +259,7 @@ def generate_launch_description():
         ("radio_seed", "", "seed of the radio environment (shadowing field); empty: the venue's"),
         ("shadowing_sigma_db", "", "shadowing std-dev in dB; empty: the venue's"),
         ("temporal_sigma_db", "", "scan-to-scan RSSI noise std-dev in dB; empty: the venue's"),
-        ("localhost_only", "true", "keep ROS 2 traffic on this machine (ROS_LOCALHOST_ONLY=1)"),
+        ("localhost_only", default_localhost, "keep ROS 2 traffic on this machine (ROS_LOCALHOST_ONLY=1)"),
         ("scan_rate", "2.0", "Wi-Fi scans per second"),
         ("odom_rot_bias", "0.04", "relative heading scale error of odometry"),
         ("odom_trans_bias", "0.015", "relative distance scale error of odometry"),

@@ -8,3 +8,9 @@ log/
 results/
 .remember/
 *.npz
+*.log
+.vscode/
+.idea/
+.venv/
+venv/
+*.swp

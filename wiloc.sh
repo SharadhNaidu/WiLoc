@@ -24,15 +24,27 @@ set -eo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS="${WILOC_WS:-$HOME/wiloc_ws}"
 ROS_SETUP=/opt/ros/humble/setup.bash
-# The simulation keeps ROS 2 traffic on this machine (launch arg localhost_only);
-# so must every ros2 command run from here, or it would not see the topics.
-export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
+# The simulation keeps ROS 2 traffic on this machine (launch arg localhost_only).
+# In WSL2 or environments where loopback multicast is not routed, ROS_LOCALHOST_ONLY=1
+# breaks discovery between the Studio window and the simulation. Default to 0 in WSL.
+if [ -z "$ROS_LOCALHOST_ONLY" ]; then
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        export ROS_LOCALHOST_ONLY=0
+    else
+        export ROS_LOCALHOST_ONLY=1
+    fi
+fi
 
-say() { printf '\033[1;34m[wiloc]\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m[wiloc]\033[0m %s\n' "$*" >&2; exit 1; }
+say() { printf '\033[1;34m[wiloc]\033[0m %b\n' "$*"; }
+die() { printf '\033[1;31m[wiloc]\033[0m %b\n' "$*" >&2; exit 1; }
 
 source_ros() {
-    [ -f "$ROS_SETUP" ] || die "ROS 2 Humble not found at /opt/ros/humble. WiLoc needs Ubuntu 22.04 + ROS 2 Humble (Gazebo classic)."
+    if [ ! -f "$ROS_SETUP" ]; then
+        if command -v wsl.exe >/dev/null 2>&1 && wsl.exe -l -v 2>/dev/null | tr -d '\0' | grep -qi "Ubuntu-22.04"; then
+            die "ROS 2 Humble not found in this environment ($(lsb_release -ds 2>/dev/null || echo Linux)).\nYou have 'Ubuntu-22.04' installed in WSL! Please switch to it by running:\n  wsl -d Ubuntu-22.04\nand run wiloc from inside that distribution."
+        fi
+        die "ROS 2 Humble not found at /opt/ros/humble. WiLoc needs Ubuntu 22.04 + ROS 2 Humble (Gazebo classic)."
+    fi
     # shellcheck disable=SC1090
     source "$ROS_SETUP"
 }
